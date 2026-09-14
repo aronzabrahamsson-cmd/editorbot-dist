@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      4.0
-// @description  v4.0: Följer sidans nya block "Event list (rek.ai)" (rekai_filtered_event_list) istället för det gamla. Titel/preamble/link text uppdateras aldrig längre. Exclude urls kopieras nu med eventen. Bytt namn till "Synka hand-picked events".
+// @version      4.1
+// @description  v4.1: Fix för matchning av flera sökträffar i chooser-modalen — litar nu på relativ rangordning (bästa vs näst bästa) istället för ett absolut poängkrav när resultaten stabiliserats.
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.com/cms/pages/*/edit/*
@@ -480,7 +480,15 @@
       // att den syntes i listan. Om samma bästa träff är oförändrad två
       // kontroller i rad (resultaten har stabiliserats) och den ändå är en
       // rimlig match, acceptera den istället för att fortsätta vänta.
-      if (stableCount >= 2 && bestHit.score > 600) {
+      //
+      // BUGGFIX v4.1: kravet på ett absolut poängtak (> 600) var kalibrerat
+      // för den gamla, brusiga kandidatpoolen (dubbletter/paginering etc).
+      // Nu när allHits bara innehåller riktiga data-chooser-modal-choice-
+      // träffar har CMS:ets egen sökning redan gjort relevansfiltreringen —
+      // en låg poäng (t.ex. 195) kan ändå vara den korrekta träffen om den
+      // klart leder över tvåan. Lita därför på den relativa rangordningen
+      // när resultaten stabiliserats, istället för ett absolut poängkrav.
+      if (stableCount >= 2 && (!secondBest || bestHit.score > secondBest.score)) {
         vlog(`Resultaten har stabiliserats, accepterar bästa träffen "${bestHit.text}" (poäng: ${bestHit.score})`, 'ok');
         bestHit.element.click();
         await wait(800);
@@ -1073,7 +1081,7 @@
     // Länkar för andra sidor
     epOpenOtherPages();
 
-    vlog('Synka hand-picked events v4.0 startad', 'ok');
+    vlog('Synka hand-picked events v4.1 startad', 'ok');
   }
 
   // ===== HUVUDPANEL =====
@@ -1421,7 +1429,7 @@
     let mode = GM_getValue('sidbot_window_mode', 'min');
     if (!['min', 'max'].includes(mode)) mode = 'min';
     document.querySelectorAll('#sb-headbtns button[data-m]').forEach(b => b.classList.toggle('on', b.dataset.m === mode));
-    vlog('EditorBot v4.0 startad');
+    vlog('EditorBot v4.1 startad');
   }
 
   // ===== INIT =====
