@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      3.9
-// @description  v3.9: Riktar in sig på Wagtails faktiska väljar-länkar (data-chooser-modal-choice) istället för att gissa bland alla element i modalen — löser att samma träff räknades flera gånger på olika DOM-nivåer och aldrig nådde poängtröskeln
+// @version      4.0
+// @description  v4.0: Följer sidans nya block "Event list (rek.ai)" (rekai_filtered_event_list) istället för det gamla. Titel/preamble/link text uppdateras aldrig längre. Exclude urls kopieras nu med eventen. Bytt namn till "Synka hand-picked events".
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.com/cms/pages/*/edit/*
@@ -35,7 +35,7 @@
   };
   const EP_PAGE_NAMES = ['S&G', 'Welcome...', 'S&D'];
   const EP_STORAGE_KEY = 'eventportor_copied_eventlist';
-  const EP_BLOCK_TYPE = 'filtered_event_list_block';
+  const EP_BLOCK_TYPE = 'rekai_filtered_event_list';
 
   // ===== HJÄLPFUNKTIONER =====
   function gmPost(url, headers, body) {
@@ -257,11 +257,11 @@
     for (let i = 0; i < count; i++) {
       const typeEl = document.querySelector('input[name="content_blocks-' + i + '-type"]');
       if (typeEl && typeEl.value === EP_BLOCK_TYPE) {
-        vlog('Eventportör: Block hittat på index ' + i, 'ok');
+        vlog('Synka hand-picked events: Block hittat på index ' + i, 'ok');
         return i;
       }
     }
-    vlog('Eventportör: Inget Event list-block hittat!', 'err');
+    vlog('Synka hand-picked events: Inget block hittat!', 'err');
     return null;
   }
 
@@ -609,16 +609,14 @@
 
       const pfx = 'content_blocks-' + blockIdx + '-value-';
 
-      // Fyll textfält
-      simulateInput($(pfx + 'title'), stored.title);
-      simulateInput($(pfx + 'preamble'), stored.preamble);
-      simulateInput($(pfx + 'link_text'), stored.linkText);
+      // OBS: Titel, preamble och link text ska ALDRIG uppdateras av scriptet
+      // (togs bort — en tidigare version skrev över dem, vilket var fel).
       const sortEl = $(pfx + 'sort_by_date');
       if (sortEl) {
         sortEl.checked = !!stored.sortByDate;
         sortEl.dispatchEvent(new Event('change', { bubbles: true }));
       }
-      vlog('Textfält ifyllda', 'ok');
+      if (stored.excludeUrls) simulateInput($(pfx + 'excludetree'), stored.excludeUrls);
 
       // STEG 1: Radera befintliga
       vlog('Raderar befintliga event...');
@@ -731,10 +729,9 @@
     if (blockIdx === null) return;
 
     const pfx = 'content_blocks-' + blockIdx + '-value-';
-    const title = ($(pfx + 'title') || {}).value || '';
-    const preamble = ($(pfx + 'preamble') || {}).value || '';
-    const linkText = ($(pfx + 'link_text') || {}).value || '';
+    // OBS: Titel, preamble och link text kopieras/uppdateras ALDRIG (togs bort).
     const sortByDate = !!($(pfx + 'sort_by_date') || {}).checked;
+    const excludeUrls = ($(pfx + 'excludetree') || {}).value || '';
 
     const subIdxs = epFindEventSubIndices(blockIdx);
     const events = [];
@@ -787,7 +784,7 @@
     vlog('Kopierade ' + events.length + ' event', 'ok');
 
     GM_setValue(EP_STORAGE_KEY, JSON.stringify({
-      title, preamble, linkText, sortByDate, events, ts: Date.now()
+      sortByDate, excludeUrls, events, ts: Date.now()
     }));
 
     setEpStatus('✅ Kopierat ' + events.length + ' event');
@@ -998,7 +995,7 @@
     const bar = document.createElement('div');
     bar.id = 'ep-bar';
     bar.innerHTML = `
-      <span class="ep-title">Eventportör</span>
+      <span class="ep-title">Synka hand-picked events</span>
       <button type="button" id="ep-copy">📋 Kopiera</button>
       <button type="button" id="ep-fill" class="ep-primary">🧹 Rensa & fyll</button>
       <button type="button" id="ep-clear-data" class="ep-danger" title="Rensa data">🗑️</button>
@@ -1028,7 +1025,7 @@
 
     const mini = document.createElement('div');
     mini.id = 'ep-bar-mini';
-    mini.title = 'Visa Eventportör';
+    mini.title = 'Visa Synka hand-picked events';
     mini.textContent = '📇';
     document.body.appendChild(mini);
 
@@ -1076,7 +1073,7 @@
     // Länkar för andra sidor
     epOpenOtherPages();
 
-    vlog('Eventportör v3.9 startad', 'ok');
+    vlog('Synka hand-picked events v4.0 startad', 'ok');
   }
 
   // ===== HUVUDPANEL =====
@@ -1424,7 +1421,7 @@
     let mode = GM_getValue('sidbot_window_mode', 'min');
     if (!['min', 'max'].includes(mode)) mode = 'min';
     document.querySelectorAll('#sb-headbtns button[data-m]').forEach(b => b.classList.toggle('on', b.dataset.m === mode));
-    vlog('EditorBot v3.9 startad');
+    vlog('EditorBot v4.0 startad');
   }
 
   // ===== INIT =====
