@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      3.8
-// @description  v3.8: Sökfältet sätts nu via native-setter (React fångade aldrig den gamla el.value-tilldelningen), och bläddringsknappar i chooser-modalen ("Föregående"/"Nästa") räknas aldrig längre som sökträffar
+// @version      3.9
+// @description  v3.9: Riktar in sig på Wagtails faktiska väljar-länkar (data-chooser-modal-choice) istället för att gissa bland alla element i modalen — löser att samma träff räknades flera gånger på olika DOM-nivåer och aldrig nådde poängtröskeln
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.com/cms/pages/*/edit/*
@@ -365,13 +365,42 @@
         return false;
       }
 
-      // Hämta alla möjliga träffar
-      const allHits = [...currentModal.querySelectorAll('a, button, li, div, span, tr')]
-        .filter(el => el !== searchInput && el.offsetParent !== null && el.textContent.trim().length > 0)
-        .filter(el => !CHOOSER_IGNORE_TEXTS.has(el.textContent.trim().toLowerCase()));
+      // Wagtails FAKTISKA väljar-länkar (bekräftat via DOM-inspektion:
+      // <a data-chooser-modal-choice href="/cms/.../chosen/ID/">titel</a>)
+      // — dessa ÄR sökträffarna. Den gamla breda skanningen (a, button, li,
+      // div, span, tr) plockade upp SAMMA titel flera gånger på olika
+      // nivåer (länken själv, dess <div>, <td>, <tr>) som om de vore
+      // separata konkurrerande träffar, plus rena sidoelement (rubriker,
+      // bläddringsknappar) som råkade poängsättas positivt — det var
+      // därför "bästa" och "näst bästa" ofta visade EXAKT samma text med
+      // olika poäng, och ingendera nådde tröskeln för att klickas.
+      const choiceLinks = [...currentModal.querySelectorAll('[data-chooser-modal-choice]')]
+        .filter(el => el.offsetParent !== null && el.textContent.trim().length > 0);
+
+      // Fallback till den gamla breda skanningen ENDAST om denna chooser-
+      // variant inte skulle använda data-chooser-modal-choice.
+      const allHits = choiceLinks.length ? choiceLinks
+        : [...currentModal.querySelectorAll('a, button, li, div, span, tr')]
+            .filter(el => el !== searchInput && el.offsetParent !== null && el.textContent.trim().length > 0)
+            .filter(el => !CHOOSER_IGNORE_TEXTS.has(el.textContent.trim().toLowerCase()));
 
       if (allHits.length === 0) {
         vlog('Inga träffar hittade än, väntar...', 'work');
+        continue;
+      }
+
+      // Exakt en riktig väljar-länk: CMS:ets egen sökning har redan filtrerat
+      // på det vi skrev in, så lita på den istället för att köra hela
+      // poängsystemet mot en ensam kandidat som ändå aldrig får konkurrens.
+      if (choiceLinks.length === 1) {
+        const only = choiceLinks[0];
+        vlog(`Exakt en sökträff: "${cleanDisplayText(only.textContent)}" — accepterar direkt`, 'ok');
+        only.click();
+        await wait(800);
+        if (await verifyFieldFilled(blockIdx, rowIndex)) {
+          await closeChooserModal();
+          return true;
+        }
         continue;
       }
 
@@ -1047,7 +1076,7 @@
     // Länkar för andra sidor
     epOpenOtherPages();
 
-    vlog('Eventportör v3.8 startad', 'ok');
+    vlog('Eventportör v3.9 startad', 'ok');
   }
 
   // ===== HUVUDPANEL =====
@@ -1395,7 +1424,7 @@
     let mode = GM_getValue('sidbot_window_mode', 'min');
     if (!['min', 'max'].includes(mode)) mode = 'min';
     document.querySelectorAll('#sb-headbtns button[data-m]').forEach(b => b.classList.toggle('on', b.dataset.m === mode));
-    vlog('EditorBot v3.8 startad');
+    vlog('EditorBot v3.9 startad');
   }
 
   // ===== INIT =====
