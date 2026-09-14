@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      4.1
-// @description  v4.1: Fix för matchning av flera sökträffar i chooser-modalen — litar nu på relativ rangordning (bästa vs näst bästa) istället för ett absolut poängkrav när resultaten stabiliserats.
+// @version      4.2
+// @description  v4.2: Ny sidlänk "Start SE", "Welcome..." döpt om till "Start EN". Exclude urls speglas nu automatiskt mellan .se/event/ och .com/events/ så båda språkdomänerna alltid finns i fältet, och kopieras till urklipp. Statusmeddelande och namn i listen uppdaterat till "Synka utvalda event".
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.com/cms/pages/*/edit/*
@@ -12,6 +12,7 @@
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setValue
 // @grant        GM_getValue
+// @grant        GM_setClipboard
 // @connect      api.mistral.ai
 // @connect      *
 // @run-at       document-idle
@@ -29,13 +30,51 @@
 
   // ===== SIDNAMN OCH URL-MAPPNING =====
   const EP_PAGE_MAPPING = {
+    'Start SE': '1458',
+    'Start EN': '3',
     'S&G': '1459',
-    'Welcome...': '3',
     'S&D': '7'
   };
-  const EP_PAGE_NAMES = ['S&G', 'Welcome...', 'S&D'];
+  const EP_PAGE_NAMES = ['Start SE', 'Start EN', 'S&G', 'S&D'];
   const EP_STORAGE_KEY = 'eventportor_copied_eventlist';
   const EP_BLOCK_TYPE = 'rekai_filtered_event_list';
+
+  // Exclude urls måste alltid finnas i BÅDA språkdomänerna, eftersom samma
+  // fältvärde återanvänds oförändrat på både .se- och .com-sidan. .se
+  // använder /event/ (singular), .com använder /events/ (plural) — resten
+  // av sökvägen är identisk. Lägger till saknade systerlänkar i slutet av
+  // fältet utan att röra befintliga rader.
+  function epMirrorExcludeUrls(text) {
+    const lines = (text || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    const existing = new Set(lines);
+    const added = [];
+
+    const SE_RE = /^(https?:\/\/(?:www\.)?)visitstockholm\.se\/event\/(.+)$/i;
+    const COM_RE = /^(https?:\/\/(?:www\.)?)visitstockholm\.com\/events\/(.+)$/i;
+
+    for (const line of lines) {
+      let mirror = null;
+      const seMatch = line.match(SE_RE);
+      if (seMatch) {
+        mirror = seMatch[1] + 'visitstockholm.com/events/' + seMatch[2];
+      } else {
+        const comMatch = line.match(COM_RE);
+        if (comMatch) {
+          mirror = comMatch[1] + 'visitstockholm.se/event/' + comMatch[2];
+        }
+      }
+      if (mirror && !existing.has(mirror)) {
+        existing.add(mirror);
+        added.push(mirror);
+      }
+    }
+
+    if (added.length === 0) return { text: text || '', added: [] };
+
+    const base = (text || '').replace(/\s+$/, '');
+    const newText = (base ? base + '\n' : '') + added.join('\n');
+    return { text: newText, added };
+  }
 
   // ===== HJÄLPFUNKTIONER =====
   function gmPost(url, headers, body) {
@@ -257,11 +296,11 @@
     for (let i = 0; i < count; i++) {
       const typeEl = document.querySelector('input[name="content_blocks-' + i + '-type"]');
       if (typeEl && typeEl.value === EP_BLOCK_TYPE) {
-        vlog('Synka hand-picked events: Block hittat på index ' + i, 'ok');
+        vlog('Synka utvalda event: Block hittat på index ' + i, 'ok');
         return i;
       }
     }
-    vlog('Synka hand-picked events: Inget block hittat!', 'err');
+    vlog('Synka utvalda event: Inget block hittat!', 'err');
     return null;
   }
 
@@ -624,7 +663,14 @@
         sortEl.checked = !!stored.sortByDate;
         sortEl.dispatchEvent(new Event('change', { bubbles: true }));
       }
-      if (stored.excludeUrls) simulateInput($(pfx + 'excludetree'), stored.excludeUrls);
+      if (stored.excludeUrls) {
+        const excludeMirror = epMirrorExcludeUrls(stored.excludeUrls);
+        simulateInput($(pfx + 'excludetree'), excludeMirror.text);
+        if (excludeMirror.added.length > 0) {
+          vlog('La till ' + excludeMirror.added.length + ' spegel-url(er) i Exclude urls (båda språkdomänerna)', 'ok');
+        }
+        GM_setClipboard(excludeMirror.text);
+      }
 
       // STEG 1: Radera befintliga
       vlog('Raderar befintliga event...');
@@ -739,7 +785,14 @@
     const pfx = 'content_blocks-' + blockIdx + '-value-';
     // OBS: Titel, preamble och link text kopieras/uppdateras ALDRIG (togs bort).
     const sortByDate = !!($(pfx + 'sort_by_date') || {}).checked;
-    const excludeUrls = ($(pfx + 'excludetree') || {}).value || '';
+    let excludeUrls = ($(pfx + 'excludetree') || {}).value || '';
+
+    const excludeMirror = epMirrorExcludeUrls(excludeUrls);
+    if (excludeMirror.added.length > 0) {
+      simulateInput($(pfx + 'excludetree'), excludeMirror.text);
+      excludeUrls = excludeMirror.text;
+      vlog('La till ' + excludeMirror.added.length + ' spegel-url(er) i Exclude urls (båda språkdomänerna)', 'ok');
+    }
 
     const subIdxs = epFindEventSubIndices(blockIdx);
     const events = [];
@@ -795,7 +848,9 @@
       sortByDate, excludeUrls, events, ts: Date.now()
     }));
 
-    setEpStatus('✅ Kopierat ' + events.length + ' event');
+    if (excludeUrls) GM_setClipboard(excludeUrls);
+
+    setEpStatus('✅ Kopierat ' + events.length + ' event, samt excluderade url:er');
   }
 
   function epClearStoredData() {
@@ -1003,7 +1058,7 @@
     const bar = document.createElement('div');
     bar.id = 'ep-bar';
     bar.innerHTML = `
-      <span class="ep-title">Synka hand-picked events</span>
+      <span class="ep-title">Synka utvalda event</span>
       <button type="button" id="ep-copy">📋 Kopiera</button>
       <button type="button" id="ep-fill" class="ep-primary">🧹 Rensa & fyll</button>
       <button type="button" id="ep-clear-data" class="ep-danger" title="Rensa data">🗑️</button>
@@ -1033,7 +1088,7 @@
 
     const mini = document.createElement('div');
     mini.id = 'ep-bar-mini';
-    mini.title = 'Visa Synka hand-picked events';
+    mini.title = 'Visa Synka utvalda event';
     mini.textContent = '📇';
     document.body.appendChild(mini);
 
@@ -1081,7 +1136,7 @@
     // Länkar för andra sidor
     epOpenOtherPages();
 
-    vlog('Synka hand-picked events v4.1 startad', 'ok');
+    vlog('Synka utvalda event v4.2 startad', 'ok');
   }
 
   // ===== HUVUDPANEL =====
@@ -1429,7 +1484,7 @@
     let mode = GM_getValue('sidbot_window_mode', 'min');
     if (!['min', 'max'].includes(mode)) mode = 'min';
     document.querySelectorAll('#sb-headbtns button[data-m]').forEach(b => b.classList.toggle('on', b.dataset.m === mode));
-    vlog('EditorBot v4.1 startad');
+    vlog('EditorBot v4.2 startad');
   }
 
   // ===== INIT =====
