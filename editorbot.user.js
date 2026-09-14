@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      3.7
-// @description  v3.7: Kortare söksträng (1-2 ord) till CMS-sökfältet, och en fix för att bästa träffen faktiskt klickas när sökresultaten har stabiliserats
+// @version      3.8
+// @description  v3.8: Sökfältet sätts nu via native-setter (React fångade aldrig den gamla el.value-tilldelningen), och bläddringsknappar i chooser-modalen ("Föregående"/"Nästa") räknas aldrig längre som sökträffar
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.com/cms/pages/*/edit/*
@@ -91,6 +91,30 @@
     el.blur();
     return true;
   }
+
+  // React (och andra ramverk som styr sina fält) skriver över inputens
+  // nativa "value"-setter, så el.value = ... följt av dispatchEvent(Event)
+  // ovan når aldrig fram till reglaget — fältet SER ifyllt ut i DOM:en men
+  // ramverket vet inte om det och triggar aldrig sin sökning. Detta sätter
+  // värdet via den underliggande native-settern precis som en riktig
+  // knapptryckning skulle göra, vilket React fångar upp korrekt.
+  function setNativeInputValue(el, value) {
+    if (!el) return false;
+    const proto = Object.getPrototypeOf(el);
+    const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+    if (setter) setter.call(el, value);
+    else el.value = value;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  }
+
+  // Kända icke-resultat i chooser-modalen (bläddringsknappar m.m.) som ALDRIG
+  // ska räknas som sökträffar, oavsett poäng — annars kan de dominera
+  // poängsättningen när de riktiga sökträffarna av någon anledning inte laddas.
+  const CHOOSER_IGNORE_TEXTS = new Set([
+    'föregående', 'nästa', 'previous', 'next', 'sök', 'search',
+    'visa fler', 'show more', 'stäng', 'close', 'avbryt', 'cancel'
+  ]);
 
   // ===== FÖRBÄTTRAD TEXTRENSNING =====
   function cleanDisplayText(text) {
@@ -318,8 +342,9 @@
     vlog('Sökfält hittat, fyller i: "' + searchQuery + '" (av hela titeln "' + cleanTerm + '")');
 
     searchInput.focus();
-    simulateInput(searchInput, searchQuery);
-    searchInput.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
+    setNativeInputValue(searchInput, searchQuery);
+    searchInput.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: searchQuery.slice(-1) }));
+    searchInput.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: searchQuery.slice(-1) }));
 
     // Vänta längre för att säkerställa att sökresultatet har laddats
     await wait(800);
@@ -342,7 +367,8 @@
 
       // Hämta alla möjliga träffar
       const allHits = [...currentModal.querySelectorAll('a, button, li, div, span, tr')]
-        .filter(el => el !== searchInput && el.offsetParent !== null && el.textContent.trim().length > 0);
+        .filter(el => el !== searchInput && el.offsetParent !== null && el.textContent.trim().length > 0)
+        .filter(el => !CHOOSER_IGNORE_TEXTS.has(el.textContent.trim().toLowerCase()));
 
       if (allHits.length === 0) {
         vlog('Inga träffar hittade än, väntar...', 'work');
@@ -1021,7 +1047,7 @@
     // Länkar för andra sidor
     epOpenOtherPages();
 
-    vlog('Eventportör v3.7 startad', 'ok');
+    vlog('Eventportör v3.8 startad', 'ok');
   }
 
   // ===== HUVUDPANEL =====
@@ -1369,7 +1395,7 @@
     let mode = GM_getValue('sidbot_window_mode', 'min');
     if (!['min', 'max'].includes(mode)) mode = 'min';
     document.querySelectorAll('#sb-headbtns button[data-m]').forEach(b => b.classList.toggle('on', b.dataset.m === mode));
-    vlog('EditorBot v3.7 startad');
+    vlog('EditorBot v3.8 startad');
   }
 
   // ===== INIT =====
