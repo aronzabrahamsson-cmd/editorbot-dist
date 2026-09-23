@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      4.4
-// @description  v4.4: Fixat bugg där "Synka utvalda event"-listen visades på fel sidor (t.ex. /objectpage/1474/) pga en delsträngsmatchning ("7" i S&D:s ID matchade siffran i "1474"). Listen visas nu bara på de 4 avsedda landningssidorna (Start SE/EN, S&G, S&D) — alla andra sidor (inklusive nya objectpage) visar EditorBot-panelen. v4.3: Objectpage-panelen fyller nu i alla vanliga textfält och kryssrutor (slug, canonical_link, twitter_title/description, related_events_title, go_live_at/expire_at, robot_noindex/nofollow, show_in_menus/show_mega_menu) från Mistral-agentens svar, inte bara ett litet urval. Fixat en bugg där extra_info skrevs till ett icke-existerande fält-ID. Mistral agent-ID förifyllt med standardagenten.
+// @version      4.5
+// @description  v4.5: EditorBot-panelen har nu en egen ⚙️-flik separat från huvudfliken, med ett mörkt/ljust temaval och API-nyckel/agent-ID-fälten. Temat sparas mellan sessioner och gäller både panelen och "Synka utvalda event"-listen. v4.4: Fixat bugg där "Synka utvalda event"-listen visades på fel sidor (t.ex. /objectpage/1474/) pga en delsträngsmatchning ("7" i S&D:s ID matchade siffran i "1474"). Listen visas nu bara på de 4 avsedda landningssidorna (Start SE/EN, S&G, S&D) — alla andra sidor (inklusive nya objectpage) visar EditorBot-panelen. v4.3: Objectpage-panelen fyller nu i alla vanliga textfält och kryssrutor (slug, canonical_link, twitter_title/description, related_events_title, go_live_at/expire_at, robot_noindex/nofollow, show_in_menus/show_mega_menu) från Mistral-agentens svar, inte bara ett litet urval. Fixat en bugg där extra_info skrevs till ett icke-existerande fält-ID. Mistral agent-ID förifyllt med standardagenten.
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.com/cms/pages/*/edit/*
@@ -23,6 +23,42 @@
 
   const MISTRAL_CONV = 'https://api.mistral.ai/v1/conversations';
   const DEFAULT_MISTRAL_AGENT_ID = 'ag_01a00f03d056722bb5310f4738447535';
+  const THEME_KEY = 'sidbot_theme';
+
+  // ===== TEMA (mörkt/ljust) =====
+  // Temat lagras globalt via GM_setValue så samma val gäller både
+  // EditorBot-panelen och "Synka utvalda event"-listen, oavsett vilken av
+  // dem som visas på sidan. Ljust läge sätts genom att skriva över samma
+  // CSS-variabler (--vd-*) som bar/panel redan använder, via attributet
+  // data-sb-theme på <html> — ingen JS-omritning av element behövs.
+  const THEME_OVERRIDE_CSS = `
+    :root[data-sb-theme="light"] {
+      --vd-bg: #f3f4f6;
+      --vd-bg2: #ffffff;
+      --vd-bg3: #eceef1;
+      --vd-line: #d8dbe1;
+      --vd-txt: #1d2129;
+      --vd-txt2: #565c66;
+      --vd-txt3: #868b93;
+      --vd-accent: #2f7fd1;
+    }
+  `;
+
+  function getStoredTheme() {
+    return GM_getValue(THEME_KEY, 'dark') === 'light' ? 'light' : 'dark';
+  }
+
+  function applyTheme(theme) {
+    document.documentElement.setAttribute('data-sb-theme', theme === 'light' ? 'light' : 'dark');
+  }
+
+  function injectThemeOverrideStyle() {
+    if (document.getElementById('sb-theme-style')) return;
+    const s = document.createElement('style');
+    s.id = 'sb-theme-style';
+    s.textContent = THEME_OVERRIDE_CSS;
+    document.head.appendChild(s);
+  }
   let busy = false;
   let lastData = null;
   let VLOG = [];
@@ -1144,7 +1180,7 @@
     // Länkar för andra sidor
     epOpenOtherPages();
 
-    vlog('Synka utvalda event v4.4 startad', 'ok');
+    vlog('Synka utvalda event v4.5 startad', 'ok');
   }
 
   // ===== HUVUDPANEL =====
@@ -1181,7 +1217,8 @@
       right: 18px;
       width: 420px;
     }
-    #sb-panel.min #sb-scroll {
+    #sb-panel.min #sb-scroll,
+    #sb-panel.min #sb-tabbar {
       display: none;
     }
     #sb-head {
@@ -1226,6 +1263,39 @@
     #sb-headbtns button.on {
       background: var(--vd-accent);
       color: #0d1520;
+    }
+    #sb-tabbar {
+      display: flex;
+      gap: 3px;
+      padding: 8px 10px 0;
+      background: var(--vd-bg2);
+      border-bottom: 1px solid var(--vd-line);
+      flex-shrink: 0;
+    }
+    .sb-tab-btn {
+      background: transparent;
+      border: none;
+      color: var(--vd-txt2);
+      font-size: 12.5px;
+      font-weight: 650;
+      padding: 7px 12px;
+      border-radius: 6px 6px 0 0;
+      cursor: pointer;
+    }
+    .sb-tab-btn:hover {
+      color: var(--vd-txt);
+      background: rgba(255,255,255,.06);
+    }
+    .sb-tab-btn.active {
+      color: var(--vd-accent);
+      background: var(--vd-bg);
+      box-shadow: inset 0 -2px 0 var(--vd-accent);
+    }
+    .sb-tab-panel {
+      display: none;
+    }
+    .sb-tab-panel.active {
+      display: block;
     }
     #sb-scroll {
       overflow-y: auto;
@@ -1384,17 +1454,25 @@
           <button type="button" id="sb-logbtn" title="Visa logg">📋</button>
         </div>
       </div>
+      <div id="sb-tabbar">
+        <button type="button" class="sb-tab-btn active" data-tab="main">EditorBot</button>
+        <button type="button" class="sb-tab-btn" data-tab="settings" title="Inställningar">⚙️</button>
+      </div>
       <div id="sb-scroll">
-        <div class="sb-row"><label>Sida-URL</label><input type="text" id="sb-url" class="sb-key" placeholder="https://…" autocomplete="off" spellcheck="false"></div>
-        <label class="sb-check"><input type="checkbox" id="sb-restaurant"> 🍽️ Restaurang</label>
-        <div class="sb-langrow">
-          <button type="button" id="sb-btn-sv">🇸🇪 Svenska</button>
-          <button type="button" id="sb-btn-en">🇺🇸 English</button>
+        <div class="sb-tab-panel active" data-tab-panel="main">
+          <div class="sb-row"><label>Sida-URL</label><input type="text" id="sb-url" class="sb-key" placeholder="https://…" autocomplete="off" spellcheck="false"></div>
+          <label class="sb-check"><input type="checkbox" id="sb-restaurant"> 🍽️ Restaurang</label>
+          <div class="sb-langrow">
+            <button type="button" id="sb-btn-sv">🇸🇪 Svenska</button>
+            <button type="button" id="sb-btn-en">🇺🇸 English</button>
+          </div>
+          <div class="sb-status" id="sb-status"></div>
         </div>
-        <div class="sb-status" id="sb-status"></div>
-        <div class="sb-sethdr">Inställningar</div>
-        <div class="sb-row"><label>Mistral API-nyckel</label><input type="text" id="sb-mkey" class="sb-key" placeholder="Mistral Bearer-nyckel" autocomplete="off" spellcheck="false"></div>
-        <div class="sb-row"><label>Mistral agent-ID</label><input type="text" id="sb-magent" class="sb-key" placeholder="ag_..." autocomplete="off" spellcheck="false"></div>
+        <div class="sb-tab-panel" data-tab-panel="settings">
+          <label class="sb-check"><input type="checkbox" id="sb-darkmode"> 🌙 Mörkt läge</label>
+          <div class="sb-row"><label>Mistral API-nyckel</label><input type="text" id="sb-mkey" class="sb-key" placeholder="Mistral Bearer-nyckel" autocomplete="off" spellcheck="false"></div>
+          <div class="sb-row"><label>Mistral agent-ID</label><input type="text" id="sb-magent" class="sb-key" placeholder="ag_..." autocomplete="off" spellcheck="false"></div>
+        </div>
       </div>
       <div id="sb-logwrap"><div class="sb-loghdr">Logg <span><button type="button" id="sb-logjson">JSON</button><button type="button" id="sb-logcopy">📋</button><button type="button" id="sb-logclose">✕</button></span></div><div id="sb-log"></div></div>
     `;
@@ -1403,6 +1481,19 @@
     $('sb-magent').value = GM_getValue('sidbot_magent', DEFAULT_MISTRAL_AGENT_ID);
     $('sb-mkey').addEventListener('change', () => GM_setValue('sidbot_mkey', $('sb-mkey').value.trim()));
     $('sb-magent').addEventListener('change', () => GM_setValue('sidbot_magent', $('sb-magent').value.trim()));
+
+    $('sb-darkmode').checked = getStoredTheme() === 'dark';
+    $('sb-darkmode').addEventListener('change', () => {
+      const theme = $('sb-darkmode').checked ? 'dark' : 'light';
+      GM_setValue(THEME_KEY, theme);
+      applyTheme(theme);
+      vlog('Tema ändrat till ' + (theme === 'dark' ? 'mörkt' : 'ljust') + ' läge', 'ok');
+    });
+
+    document.querySelectorAll('.sb-tab-btn').forEach(btn => btn.addEventListener('click', () => {
+      document.querySelectorAll('.sb-tab-btn').forEach(b => b.classList.toggle('active', b === btn));
+      document.querySelectorAll('.sb-tab-panel').forEach(p => p.classList.toggle('active', p.dataset.tabPanel === btn.dataset.tab));
+    }));
 
     document.querySelectorAll('#sb-headbtns button[data-m]').forEach(b => b.addEventListener('click', () => {
       const panel = $('sb-panel');
@@ -1525,10 +1616,15 @@
     let mode = GM_getValue('sidbot_window_mode', 'min');
     if (!['min', 'max'].includes(mode)) mode = 'min';
     document.querySelectorAll('#sb-headbtns button[data-m]').forEach(b => b.classList.toggle('on', b.dataset.m === mode));
-    vlog('EditorBot v4.4 startad');
+    vlog('EditorBot v4.5 startad');
   }
 
   // ===== INIT =====
+  // Temat appliceras innan bar/panel byggs, oavsett vilken av dem sidan
+  // visar, så samma mörkt/ljust-val gäller överallt.
+  injectThemeOverrideStyle();
+  applyTheme(getStoredTheme());
+
   // "Synka utvalda event"-listen ska ENDAST visas på de 4 kända
   // landningssidorna (Start SE/EN, S&G, S&D) — dvs. exakt sidans ID matchar
   // EP_PAGE_MAPPING, inte "vilken edit-sida som helst" och inte en
