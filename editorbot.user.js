@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      4.3
-// @description  v4.3: Objectpage-panelen fyller nu i alla vanliga textfält och kryssrutor (slug, canonical_link, twitter_title/description, related_events_title, go_live_at/expire_at, robot_noindex/nofollow, show_in_menus/show_mega_menu) från Mistral-agentens svar, inte bara ett litet urval. Fixat en bugg där extra_info skrevs till ett icke-existerande fält-ID. Mistral agent-ID förifyllt med standardagenten.
+// @version      4.4
+// @description  v4.4: Fixat bugg där "Synka utvalda event"-listen visades på fel sidor (t.ex. /objectpage/1474/) pga en delsträngsmatchning ("7" i S&D:s ID matchade siffran i "1474"). Listen visas nu bara på de 4 avsedda landningssidorna (Start SE/EN, S&G, S&D) — alla andra sidor (inklusive nya objectpage) visar EditorBot-panelen. v4.3: Objectpage-panelen fyller nu i alla vanliga textfält och kryssrutor (slug, canonical_link, twitter_title/description, related_events_title, go_live_at/expire_at, robot_noindex/nofollow, show_in_menus/show_mega_menu) från Mistral-agentens svar, inte bara ett litet urval. Fixat en bugg där extra_info skrevs till ett icke-existerande fält-ID. Mistral agent-ID förifyllt med standardagenten.
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.com/cms/pages/*/edit/*
@@ -279,15 +279,22 @@
   }
 
   // ===== EVENTPORTÖR =====
-  function epCurrentPageId() {
-    const path = location.pathname;
-    for (const name of EP_PAGE_NAMES) {
-      if (path.includes(EP_PAGE_MAPPING[name])) {
-        return name;
-      }
-    }
+  // Extraherar sidans ID ur en /cms/pages/<id>/edit/-url. Används istället för
+  // path.includes(id) på egen hand, eftersom ett kort numeriskt ID (t.ex. "7"
+  // för S&D) annars råkar matcha som delsträng i helt andra siffror i
+  // sökvägen (t.ex. "1474" i /objectpage/1474/ innehåller "7").
+  function epPageIdFromPath(path) {
     const m = path.match(/\/cms\/pages\/(\d+)\/edit\//);
     return m ? m[1] : null;
+  }
+
+  function epCurrentPageId() {
+    const id = epPageIdFromPath(location.pathname);
+    if (id === null) return null;
+    for (const name of EP_PAGE_NAMES) {
+      if (EP_PAGE_MAPPING[name] === id) return name;
+    }
+    return id;
   }
 
   function epFindEventListBlockIndex() {
@@ -1137,7 +1144,7 @@
     // Länkar för andra sidor
     epOpenOtherPages();
 
-    vlog('Synka utvalda event v4.2 startad', 'ok');
+    vlog('Synka utvalda event v4.4 startad', 'ok');
   }
 
   // ===== HUVUDPANEL =====
@@ -1518,12 +1525,17 @@
     let mode = GM_getValue('sidbot_window_mode', 'min');
     if (!['min', 'max'].includes(mode)) mode = 'min';
     document.querySelectorAll('#sb-headbtns button[data-m]').forEach(b => b.classList.toggle('on', b.dataset.m === mode));
-    vlog('EditorBot v4.2 startad');
+    vlog('EditorBot v4.4 startad');
   }
 
   // ===== INIT =====
-  if (Object.values(EP_PAGE_MAPPING).some(id => location.pathname.includes(id)) ||
-      /\/cms\/pages\/\d+\/edit\//.test(location.pathname)) {
+  // "Synka utvalda event"-listen ska ENDAST visas på de 4 kända
+  // landningssidorna (Start SE/EN, S&G, S&D) — dvs. exakt sidans ID matchar
+  // EP_PAGE_MAPPING, inte "vilken edit-sida som helst" och inte en
+  // delsträngsträff mot ett annat sid-ID (se epPageIdFromPath).
+  const epPageId = epPageIdFromPath(location.pathname);
+  const isEventPortalPage = epPageId !== null && Object.values(EP_PAGE_MAPPING).includes(epPageId);
+  if (isEventPortalPage) {
     buildEventportorBar();
   } else {
     buildPanel();
