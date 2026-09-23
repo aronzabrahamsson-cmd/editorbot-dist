@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      4.2
-// @description  v4.2: Ny sidlänk "Start SE", "Welcome..." döpt om till "Start EN". Exclude urls speglas nu automatiskt mellan .se/event/ och .com/events/ så båda språkdomänerna alltid finns i fältet, och kopieras till urklipp. Statusmeddelande och namn i listen uppdaterat till "Synka utvalda event".
+// @version      4.3
+// @description  v4.3: Objectpage-panelen fyller nu i alla vanliga textfält och kryssrutor (slug, canonical_link, twitter_title/description, related_events_title, go_live_at/expire_at, robot_noindex/nofollow, show_in_menus/show_mega_menu) från Mistral-agentens svar, inte bara ett litet urval. Fixat en bugg där extra_info skrevs till ett icke-existerande fält-ID. Mistral agent-ID förifyllt med standardagenten.
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.com/cms/pages/*/edit/*
@@ -22,6 +22,7 @@
   'use strict';
 
   const MISTRAL_CONV = 'https://api.mistral.ai/v1/conversations';
+  const DEFAULT_MISTRAL_AGENT_ID = 'ag_01a00f03d056722bb5310f4738447535';
   let busy = false;
   let lastData = null;
   let VLOG = [];
@@ -1392,7 +1393,7 @@
     `;
 
     $('sb-mkey').value = GM_getValue('sidbot_mkey', '');
-    $('sb-magent').value = GM_getValue('sidbot_magent', '');
+    $('sb-magent').value = GM_getValue('sidbot_magent', DEFAULT_MISTRAL_AGENT_ID);
     $('sb-mkey').addEventListener('change', () => GM_setValue('sidbot_mkey', $('sb-mkey').value.trim()));
     $('sb-magent').addEventListener('change', () => GM_setValue('sidbot_magent', $('sb-magent').value.trim()));
 
@@ -1457,12 +1458,45 @@
         if (!data) throw new Error('Kunde inte tolka JSON.');
         lastData = data;
 
-        const PLAIN_FIELDS = [['title','id_title'],['street_address','id_street_address'],['zip_code','id_zip_code'],['city','id_city'],['phone','id_phone'],['email','id_email'],['external_link','id_external_link'],['external_link_text','id_external_link_text'],['seo_title','id_seo_title'],['search_description','id_search_description'],['og_title','id_og_title'],['og_description','id_og_description'],['list_title','id_list_title']];
+        const PLAIN_FIELDS = [
+          ['title','id_title'],
+          ['street_address','id_street_address'],
+          ['zip_code','id_zip_code'],
+          ['city','id_city'],
+          ['phone','id_phone'],
+          ['email','id_email'],
+          ['external_link','id_external_link'],
+          ['external_link_text','id_external_link_text'],
+          ['related_events_title','id_related_events_title'],
+          ['slug','id_slug'],
+          ['seo_title','id_seo_title'],
+          ['search_description','id_search_description'],
+          ['og_title','id_og_title'],
+          ['og_description','id_og_description'],
+          ['twitter_title','id_twitter_title'],
+          ['twitter_description','id_twitter_description'],
+          ['canonical_link','id_canonical_link'],
+          ['list_title','id_list_title'],
+          ['go_live_at','id_go_live_at'],
+          ['expire_at','id_expire_at']
+        ];
         for (const [key, id] of PLAIN_FIELDS) if (data[key]) simulateInput($(id), data[key]);
+
+        // Kryssrutor sätts explicit (även till false/av) om agenten anger dem,
+        // till skillnad från textfälten ovan som bara skrivs om ett värde finns.
+        const CHECKBOX_FIELDS = [
+          ['robot_noindex','id_robot_noindex'],
+          ['robot_nofollow','id_robot_nofollow'],
+          ['show_in_menus','id_show_in_menus'],
+          ['show_mega_menu','id_show_mega_menu']
+        ];
+        for (const [key, id] of CHECKBOX_FIELDS) if (Object.prototype.hasOwnProperty.call(data, key)) simulateInput($(id), data[key]);
+
         if (isRestaurant && data.booking_link) simulateInput($('id_booking_link'), data.booking_link);
         if (isRestaurant && data.booking_link_text) simulateInput($('id_booking_link_text'), data.booking_link_text);
         if (data.rich_text) simulateInput($('id_rich_text'), data.rich_text);
-        if (data.extra_info) simulateInput($('id_extra_info'), data.extra_info);
+        const extraInfo = data.extra_info_text || data.extra_info;
+        if (extraInfo) simulateInput($('id_extra_info_text'), extraInfo);
         setStatus('Klar!', 'ok');
       } catch (e) { setStatus(e.message, 'err'); } finally { busy = false; $('sb-btn-sv').disabled = false; $('sb-btn-en').disabled = false; }
     }
