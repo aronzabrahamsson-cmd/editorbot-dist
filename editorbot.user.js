@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      4.11
-// @description  v4.11: Ny bildautomation — när en bild väljs manuellt i bilduppladdningsmodalen (featured_image/og_image/twitter_image, samma modal som eventbot använder) genereras alt-text (sv/en) automatiskt via pixtral-synmodellen, och kredit/rättighetsdatum (dagens datum + 5 år) fylls i. Kräver sparad Mistral API-nyckel (⚙️-fliken). v4.10: Mörkblått versionsmärke bredvid rubriken i båda widgetarna, så man alltid ser exakt vilken version som körs. v4.9: Fix för web_search-svar som inte gick att tolka som JSON. v4.8: Detaljerad loggning av allt som skickas/tas emot från Mistral, plus fix för falskt "Klar!" när agenten inte gav någon användbar data. Äldre versioner: se git-historiken.
+// @version      4.12
+// @description  v4.12: Alt-text-fälten i bilduppladdningsmodalen är för smala för att visa hela texten utan att skrolla i sidled — en tillfällig, läsbar förhandsvisningsruta (gul, med en ✕ stängknapp) visas nu direkt under alt-fälten (sv+en) automatiskt så fort pixtral genererat texten. v4.11: Ny bildautomation — när en bild väljs manuellt i bilduppladdningsmodalen (featured_image/og_image/twitter_image, samma modal som eventbot använder) genereras alt-text (sv/en) automatiskt via pixtral-synmodellen, och kredit/rättighetsdatum (dagens datum + 5 år) fylls i. Kräver sparad Mistral API-nyckel (⚙️-fliken). v4.10: Mörkblått versionsmärke bredvid rubriken i båda widgetarna, så man alltid ser exakt vilken version som körs. v4.9: Fix för web_search-svar som inte gick att tolka som JSON. v4.8: Detaljerad loggning av allt som skickas/tas emot från Mistral, plus fix för falskt "Klar!" när agenten inte gav någon användbar data. Äldre versioner: se git-historiken.
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.com/cms/pages/*/edit/*
@@ -29,7 +29,7 @@
   // överst i filen. Används i loggens startrad och i versionsmärket i
   // widgetarnas rubrik (mörkblå text/bakgrund, oberoende av tema, så man
   // alltid kan se på skärmen exakt vilken version som körs).
-  const SCRIPT_VERSION = '4.11';
+  const SCRIPT_VERSION = '4.12';
   function versionBadgeHTML() {
     return '<span style="display:inline-block;margin-left:8px;padding:1px 7px;' +
       'border-radius:5px;background:#dbe7ff;color:#0b3d91;font-size:11px;' +
@@ -341,6 +341,30 @@
     el.dispatchEvent(new Event('change', { bubbles: true }));
   }
 
+  // Alt-text-fälten i uppladdningsmodalen är fysiskt små och visar inte hela
+  // texten utan att man skrollar i sidled. Lägger därför en tillfällig
+  // förhandsvisningsruta direkt under fältet med hela texten läsbar —
+  // stängs manuellt (✕) eller ersätts av en ny ruta vid nästa bildval.
+  function showAltTextPreview(fieldId, label, text) {
+    const field = document.getElementById(fieldId);
+    if (!field || !text) return;
+
+    const existing = document.getElementById(fieldId + '-ep-preview');
+    if (existing) existing.remove();
+
+    const box = document.createElement('div');
+    box.id = fieldId + '-ep-preview';
+    box.style.cssText = 'margin-top:4px;padding:8px 28px 8px 10px;background:#fff8d6;' +
+      'border:1px solid #e0c94a;border-radius:6px;font-size:12.5px;color:#3a3418;' +
+      'line-height:1.4;white-space:pre-wrap;position:relative;max-width:100%;box-sizing:border-box;';
+    box.innerHTML = '<strong>' + esc(label) + ':</strong> ' + esc(text) +
+      '<button type="button" title="Stäng" style="position:absolute;top:4px;right:6px;' +
+      'background:none;border:none;cursor:pointer;font-size:12px;color:#7a6d1a;padding:2px 4px;">✕</button>';
+    box.querySelector('button').addEventListener('click', () => box.remove());
+
+    field.insertAdjacentElement('afterend', box);
+  }
+
   async function handleImageFileSelected(fileInput) {
     const file = fileInput.files && fileInput.files[0];
     if (!file) return;
@@ -377,6 +401,11 @@
       if (val) { setImgFieldValue(el, val); filled++; }
     }
     vlog('Bildfält ifyllda: ' + filled + ' st.', 'ok');
+
+    // Alt-text-fälten är för smala för att visa hela texten — lägg en
+    // läsbar förhandsvisning direkt under dem så man slipper skrolla i sidled.
+    showAltTextPreview(IMG_FIELDS.alt, 'Alt-text (EN)', altEn);
+    showAltTextPreview(IMG_FIELDS.alt_sv, 'Alt-text (SV)', altSv);
   }
 
   // Delegerad, fångstfas-lyssnare på documentet — bilduppladdningsmodalen
