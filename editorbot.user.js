@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      4.10
-// @description  v4.10: Lade till ett mörkblått versionsmärke (t.ex. "v4.10") bredvid rubriken i både EditorBot-panelen och "Synka utvalda event"-listen, så man alltid kan se på skärmen exakt vilken version som körs (bakgrunden är ljusblå så texten syns oavsett mörkt/ljust tema). Versionsnumret hämtas nu från en enda konstant (SCRIPT_VERSION) istället för att vara hårdkodat på flera ställen. v4.9: Fixat att svaret inte gick att tolka som JSON ("Kunde inte tolka agentens svar som JSON") så fort agentens web_search-verktyg var påslaget — scriptet läste alltid outputs[0], men med web_search hamnar själva sökanropet (utan textinnehåll) där FÖRE agentens riktiga svarsmeddelande, som då aldrig lästes. Letar nu upp den sista output-posten som faktiskt har textinnehåll, oavsett hur många verktygsanrop som föregår den. v4.8: Loggen (📋) visar nu allt som skickas till och tas emot från Mistral för objectpage-panelen (tidigare visades i praktiken ingenting där) — den skickade texten, svarets nycklar, extraherad text och den tolkade JSON:en, både för originalsvaret och ev. blocklist-omskrivningar. Fixat att "Klar!" kunde visas trots att agenten inte gav någon användbar data (tomt titel-fält, t.ex. notes: "not_applicable") — det enda ifyllda var URL-fältet användaren själv skrivit. Scriptet fyller nu inte i formuläret och visar ett tydligt felmeddelande med agentens notes-orsak istället. v4.7: Ny programmatisk blocklist-kontroll på agentens JSON-svar innan fälten fylls i — söker igenom alla strängfält utom "notes" (normaliserat: NFC, lowercase, kollapsade mellanslag) efter klichéord/fraser (sv+en), med undantag för verifierade delar av objektets eget namn. Vid träff skickas hela föregående JSON tillbaka till agenten med begäran om omskrivning enligt BLOCKLISTE-KONTROLL i systemprompten (max 1 omskrivningsförsök). Kvarstår träffar efter det fylls inga fält i — objektet flaggas istället för manuell granskning i statusraden och loggen. v4.6: Fixat att "Fyll i API-nyckel och agent-ID först" kunde visas trots synligt ifyllda fält (standardagenten sparades aldrig, och kontrollen läste bara sparad data, inte fältens faktiska innehåll). Mörkt läge-kryssrutan är nu en riktig växlingsknapp (var snedvriden/ful som kryssruta), och textfälten tvingas nu alltid ha rätt bakgrund/textfärg (vitt/svart i ljust läge) med !important så CMS:ets egna stilar inte vinner. v4.5: EditorBot-panelen har nu en egen ⚙️-flik separat från huvudfliken, med ett mörkt/ljust temaval och API-nyckel/agent-ID-fälten. Temat sparas mellan sessioner och gäller både panelen och "Synka utvalda event"-listen. v4.4: Fixat bugg där "Synka utvalda event"-listen visades på fel sidor (t.ex. /objectpage/1474/) pga en delsträngsmatchning ("7" i S&D:s ID matchade siffran i "1474"). Listen visas nu bara på de 4 avsedda landningssidorna (Start SE/EN, S&G, S&D) — alla andra sidor (inklusive nya objectpage) visar EditorBot-panelen. v4.3: Objectpage-panelen fyller nu i alla vanliga textfält och kryssrutor (slug, canonical_link, twitter_title/description, related_events_title, go_live_at/expire_at, robot_noindex/nofollow, show_in_menus/show_mega_menu) från Mistral-agentens svar, inte bara ett litet urval. Fixat en bugg där extra_info skrevs till ett icke-existerande fält-ID. Mistral agent-ID förifyllt med standardagenten.
+// @version      4.11
+// @description  v4.11: Ny bildautomation — när en bild väljs manuellt i bilduppladdningsmodalen (featured_image/og_image/twitter_image, samma modal som eventbot använder) genereras alt-text (sv/en) automatiskt via pixtral-synmodellen, och kredit/rättighetsdatum (dagens datum + 5 år) fylls i. Kräver sparad Mistral API-nyckel (⚙️-fliken). v4.10: Mörkblått versionsmärke bredvid rubriken i båda widgetarna, så man alltid ser exakt vilken version som körs. v4.9: Fix för web_search-svar som inte gick att tolka som JSON. v4.8: Detaljerad loggning av allt som skickas/tas emot från Mistral, plus fix för falskt "Klar!" när agenten inte gav någon användbar data. Äldre versioner: se git-historiken.
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.com/cms/pages/*/edit/*
@@ -29,7 +29,7 @@
   // överst i filen. Används i loggens startrad och i versionsmärket i
   // widgetarnas rubrik (mörkblå text/bakgrund, oberoende av tema, så man
   // alltid kan se på skärmen exakt vilken version som körs).
-  const SCRIPT_VERSION = '4.10';
+  const SCRIPT_VERSION = '4.11';
   function versionBadgeHTML() {
     return '<span style="display:inline-block;margin-left:8px;padding:1px 7px;' +
       'border-radius:5px;background:#dbe7ff;color:#0b3d91;font-size:11px;' +
@@ -260,6 +260,135 @@
       '\nSkriv om enligt BLOCKLISTE-KONTROLL i systemprompten och returnera om hela JSON-objektet.' +
       '\n\nFöregående JSON-objekt:\n' + JSON.stringify(previousData);
   }
+
+  // ===== BILDAUTOMATION (alt-text via pixtral) =====
+  // Samma bilduppladdningsmodal (Wagtails globala image-chooser) används av
+  // både eventbot och EditorBot, så fält-ID:na nedan är identiska med
+  // eventbots motsvarande modul. Skillnaden mot eventbot: här finns ingen
+  // känd bild-URL att auto-hämta (objectpage-agenten returnerar ingen bild),
+  // så bilden väljs manuellt av användaren precis som idag — scriptet
+  // lyssnar bara på filfältets change-event och fyller i alt-text/kredit/
+  // rättighetsdatum automatiskt när en fil väl har valts.
+  const IMG_FIELDS = {
+    title:       'id_image-chooser-upload-title',
+    title_sv:    'id_image-chooser-upload-title_sv',
+    description: 'id_image-chooser-upload-description',
+    credit:      'id_image-chooser-upload-credit',
+    credit_sv:   'id_image-chooser-upload-credit_sv',
+    alt:         'id_image-chooser-upload-alt',
+    alt_sv:      'id_image-chooser-upload-alt_sv',
+    file:        'id_image-chooser-upload-file',
+    rights:      'id_image-chooser-upload-rights_expiry_date'
+  };
+
+  // Object pages saknar ett naturligt slutdatum (till skillnad från event),
+  // så rättighetsdatumet sätts till ett fast intervall: dagens datum + 5 år.
+  function computeImageRightsExpiry() {
+    const d = new Date();
+    d.setFullYear(d.getFullYear() + 5);
+    return d.toISOString().split('T')[0];
+  }
+
+  function fileToDataURL(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error('Kunde inte läsa bildfilen'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // Separat, snabbt anrop till en RIKTIG synmodell (pixtral) enbart för
+  // alt-text — huvudagenten (mistral-medium) ser inte bilder. Filen är
+  // lokalt vald av användaren (inte hostad någonstans), så den skickas som
+  // en data-URL istället för en bild-länk.
+  async function fetchAltTextFromImageFile(file, apiKey) {
+    if (!file || !apiKey) return null;
+    try {
+      const dataUrl = await fileToDataURL(file);
+      const body = {
+        model: 'pixtral-12b-2409',
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Beskriv bilden i EXAKT två korta, sakliga meningar. ' +
+              'Svara ENBART med JSON: {"alttext_sv":"...","alttext_en":"..."}. ' +
+              'Ingen text utanför JSON. Hitta inte på detaljer du inte ser.' },
+            { type: 'image_url', image_url: dataUrl }
+          ]
+        }]
+      };
+      const resp = await gmPost('https://api.mistral.ai/v1/chat/completions',
+        { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey }, body);
+      const text = resp.choices?.[0]?.message?.content || '';
+      const data = extractJSON(text);
+      if (data && (data.alttext_sv || data.alttext_en)) return data;
+    } catch (e) {
+      vlog('Pixtral alt-text-anrop misslyckades: ' + e.message, 'err');
+    }
+    return null;
+  }
+
+  // Sätter värdet via native-settern (som simulateInput/setNativeInputValue
+  // på andra ställen i scriptet) OCH dispatchar både input och change —
+  // Wagtails datumfält (rights_expiry_date) reagerar bara på change.
+  function setImgFieldValue(el, value) {
+    if (!el) return;
+    const proto = Object.getPrototypeOf(el);
+    const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+    if (setter) setter.call(el, value); else el.value = value;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  async function handleImageFileSelected(fileInput) {
+    const file = fileInput.files && fileInput.files[0];
+    if (!file) return;
+
+    const apiKey = GM_getValue('sidbot_mkey', '').trim();
+    if (!apiKey) {
+      vlog('Bildautomation: ingen Mistral API-nyckel sparad (se ⚙️-fliken) — hoppar över alt-text.', 'warn');
+      return;
+    }
+
+    const pageTitle = (document.getElementById('id_title')?.value || '').trim();
+    vlog('Bild vald (' + file.name + ') — genererar alt-text via pixtral…');
+
+    const alt = await fetchAltTextFromImageFile(file, apiKey);
+    const placeholder = pageTitle ? ('Bild: ' + pageTitle) : 'Bild';
+    const altSv = (alt && alt.alttext_sv) || placeholder;
+    const altEn = (alt && alt.alttext_en) || placeholder;
+    vlog(alt ? 'Pixtral gav alt-text.' : 'Pixtral gav ingen alt-text — använder platshållare.', alt ? 'ok' : 'warn');
+
+    const map = [
+      [IMG_FIELDS.title,       pageTitle],
+      [IMG_FIELDS.title_sv,    pageTitle],
+      [IMG_FIELDS.description, altSv],
+      [IMG_FIELDS.credit,      pageTitle ? ('Press image ' + pageTitle) : 'Press image'],
+      [IMG_FIELDS.credit_sv,   pageTitle ? ('Pressbild ' + pageTitle) : 'Pressbild'],
+      [IMG_FIELDS.alt,         altEn],
+      [IMG_FIELDS.alt_sv,      altSv],
+      [IMG_FIELDS.rights,      computeImageRightsExpiry()]
+    ];
+    let filled = 0;
+    for (const [id, val] of map) {
+      const el = document.getElementById(id);
+      if (!el) continue;
+      if (val) { setImgFieldValue(el, val); filled++; }
+    }
+    vlog('Bildfält ifyllda: ' + filled + ' st.', 'ok');
+  }
+
+  // Delegerad, fångstfas-lyssnare på documentet — bilduppladdningsmodalen
+  // skapas/tas bort dynamiskt av Wagtail, så en direkt lyssnare på filfältet
+  // skulle tappas mellan öppningar. Fångar alla tre bildväljare på sidan
+  // (featured_image, og_image, twitter_image) eftersom de delar samma
+  // modal och därmed samma fält-ID:n.
+  document.addEventListener('change', (e) => {
+    if (e.target && e.target.id === IMG_FIELDS.file) {
+      handleImageFileSelected(e.target).catch(err => vlog('Bildautomation fel: ' + err.message, 'err'));
+    }
+  }, true);
 
   function vlog(msg, kind = 'info') {
     const t = new Date();
