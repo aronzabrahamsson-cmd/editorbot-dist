@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      4.9
-// @description  v4.9: Fixat att svaret inte gick att tolka som JSON ("Kunde inte tolka agentens svar som JSON") så fort agentens web_search-verktyg var påslaget — scriptet läste alltid outputs[0], men med web_search hamnar själva sökanropet (utan textinnehåll) där FÖRE agentens riktiga svarsmeddelande, som då aldrig lästes. Letar nu upp den sista output-posten som faktiskt har textinnehåll, oavsett hur många verktygsanrop som föregår den. v4.8: Loggen (📋) visar nu allt som skickas till och tas emot från Mistral för objectpage-panelen (tidigare visades i praktiken ingenting där) — den skickade texten, svarets nycklar, extraherad text och den tolkade JSON:en, både för originalsvaret och ev. blocklist-omskrivningar. Fixat att "Klar!" kunde visas trots att agenten inte gav någon användbar data (tomt titel-fält, t.ex. notes: "not_applicable") — det enda ifyllda var URL-fältet användaren själv skrivit. Scriptet fyller nu inte i formuläret och visar ett tydligt felmeddelande med agentens notes-orsak istället. v4.7: Ny programmatisk blocklist-kontroll på agentens JSON-svar innan fälten fylls i — söker igenom alla strängfält utom "notes" (normaliserat: NFC, lowercase, kollapsade mellanslag) efter klichéord/fraser (sv+en), med undantag för verifierade delar av objektets eget namn. Vid träff skickas hela föregående JSON tillbaka till agenten med begäran om omskrivning enligt BLOCKLISTE-KONTROLL i systemprompten (max 1 omskrivningsförsök). Kvarstår träffar efter det fylls inga fält i — objektet flaggas istället för manuell granskning i statusraden och loggen. v4.6: Fixat att "Fyll i API-nyckel och agent-ID först" kunde visas trots synligt ifyllda fält (standardagenten sparades aldrig, och kontrollen läste bara sparad data, inte fältens faktiska innehåll). Mörkt läge-kryssrutan är nu en riktig växlingsknapp (var snedvriden/ful som kryssruta), och textfälten tvingas nu alltid ha rätt bakgrund/textfärg (vitt/svart i ljust läge) med !important så CMS:ets egna stilar inte vinner. v4.5: EditorBot-panelen har nu en egen ⚙️-flik separat från huvudfliken, med ett mörkt/ljust temaval och API-nyckel/agent-ID-fälten. Temat sparas mellan sessioner och gäller både panelen och "Synka utvalda event"-listen. v4.4: Fixat bugg där "Synka utvalda event"-listen visades på fel sidor (t.ex. /objectpage/1474/) pga en delsträngsmatchning ("7" i S&D:s ID matchade siffran i "1474"). Listen visas nu bara på de 4 avsedda landningssidorna (Start SE/EN, S&G, S&D) — alla andra sidor (inklusive nya objectpage) visar EditorBot-panelen. v4.3: Objectpage-panelen fyller nu i alla vanliga textfält och kryssrutor (slug, canonical_link, twitter_title/description, related_events_title, go_live_at/expire_at, robot_noindex/nofollow, show_in_menus/show_mega_menu) från Mistral-agentens svar, inte bara ett litet urval. Fixat en bugg där extra_info skrevs till ett icke-existerande fält-ID. Mistral agent-ID förifyllt med standardagenten.
+// @version      4.10
+// @description  v4.10: Lade till ett mörkblått versionsmärke (t.ex. "v4.10") bredvid rubriken i både EditorBot-panelen och "Synka utvalda event"-listen, så man alltid kan se på skärmen exakt vilken version som körs (bakgrunden är ljusblå så texten syns oavsett mörkt/ljust tema). Versionsnumret hämtas nu från en enda konstant (SCRIPT_VERSION) istället för att vara hårdkodat på flera ställen. v4.9: Fixat att svaret inte gick att tolka som JSON ("Kunde inte tolka agentens svar som JSON") så fort agentens web_search-verktyg var påslaget — scriptet läste alltid outputs[0], men med web_search hamnar själva sökanropet (utan textinnehåll) där FÖRE agentens riktiga svarsmeddelande, som då aldrig lästes. Letar nu upp den sista output-posten som faktiskt har textinnehåll, oavsett hur många verktygsanrop som föregår den. v4.8: Loggen (📋) visar nu allt som skickas till och tas emot från Mistral för objectpage-panelen (tidigare visades i praktiken ingenting där) — den skickade texten, svarets nycklar, extraherad text och den tolkade JSON:en, både för originalsvaret och ev. blocklist-omskrivningar. Fixat att "Klar!" kunde visas trots att agenten inte gav någon användbar data (tomt titel-fält, t.ex. notes: "not_applicable") — det enda ifyllda var URL-fältet användaren själv skrivit. Scriptet fyller nu inte i formuläret och visar ett tydligt felmeddelande med agentens notes-orsak istället. v4.7: Ny programmatisk blocklist-kontroll på agentens JSON-svar innan fälten fylls i — söker igenom alla strängfält utom "notes" (normaliserat: NFC, lowercase, kollapsade mellanslag) efter klichéord/fraser (sv+en), med undantag för verifierade delar av objektets eget namn. Vid träff skickas hela föregående JSON tillbaka till agenten med begäran om omskrivning enligt BLOCKLISTE-KONTROLL i systemprompten (max 1 omskrivningsförsök). Kvarstår träffar efter det fylls inga fält i — objektet flaggas istället för manuell granskning i statusraden och loggen. v4.6: Fixat att "Fyll i API-nyckel och agent-ID först" kunde visas trots synligt ifyllda fält (standardagenten sparades aldrig, och kontrollen läste bara sparad data, inte fältens faktiska innehåll). Mörkt läge-kryssrutan är nu en riktig växlingsknapp (var snedvriden/ful som kryssruta), och textfälten tvingas nu alltid ha rätt bakgrund/textfärg (vitt/svart i ljust läge) med !important så CMS:ets egna stilar inte vinner. v4.5: EditorBot-panelen har nu en egen ⚙️-flik separat från huvudfliken, med ett mörkt/ljust temaval och API-nyckel/agent-ID-fälten. Temat sparas mellan sessioner och gäller både panelen och "Synka utvalda event"-listen. v4.4: Fixat bugg där "Synka utvalda event"-listen visades på fel sidor (t.ex. /objectpage/1474/) pga en delsträngsmatchning ("7" i S&D:s ID matchade siffran i "1474"). Listen visas nu bara på de 4 avsedda landningssidorna (Start SE/EN, S&G, S&D) — alla andra sidor (inklusive nya objectpage) visar EditorBot-panelen. v4.3: Objectpage-panelen fyller nu i alla vanliga textfält och kryssrutor (slug, canonical_link, twitter_title/description, related_events_title, go_live_at/expire_at, robot_noindex/nofollow, show_in_menus/show_mega_menu) från Mistral-agentens svar, inte bara ett litet urval. Fixat en bugg där extra_info skrevs till ett icke-existerande fält-ID. Mistral agent-ID förifyllt med standardagenten.
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.com/cms/pages/*/edit/*
@@ -24,6 +24,17 @@
   const MISTRAL_CONV = 'https://api.mistral.ai/v1/conversations';
   const DEFAULT_MISTRAL_AGENT_ID = 'ag_01a00f03d056722bb5310f4738447535';
   const THEME_KEY = 'sidbot_theme';
+
+  // Enda källan till versionsnumret — matcha alltid mot @version-headern
+  // överst i filen. Används i loggens startrad och i versionsmärket i
+  // widgetarnas rubrik (mörkblå text/bakgrund, oberoende av tema, så man
+  // alltid kan se på skärmen exakt vilken version som körs).
+  const SCRIPT_VERSION = '4.10';
+  function versionBadgeHTML() {
+    return '<span style="display:inline-block;margin-left:8px;padding:1px 7px;' +
+      'border-radius:5px;background:#dbe7ff;color:#0b3d91;font-size:11px;' +
+      'font-weight:800;letter-spacing:.02em;vertical-align:middle;">v' + SCRIPT_VERSION + '</span>';
+  }
 
   // ===== TEMA (mörkt/ljust) =====
   // Temat lagras globalt via GM_setValue så samma val gäller både
@@ -1221,7 +1232,7 @@
     const bar = document.createElement('div');
     bar.id = 'ep-bar';
     bar.innerHTML = `
-      <span class="ep-title">Synka utvalda event</span>
+      <span class="ep-title">Synka utvalda event</span>${versionBadgeHTML()}
       <button type="button" id="ep-copy">📋 Kopiera</button>
       <button type="button" id="ep-fill" class="ep-primary">🧹 Rensa & fyll</button>
       <button type="button" id="ep-clear-data" class="ep-danger" title="Rensa data">🗑️</button>
@@ -1299,7 +1310,7 @@
     // Länkar för andra sidor
     epOpenOtherPages();
 
-    vlog('Synka utvalda event v4.9 startad', 'ok');
+    vlog('Synka utvalda event v' + SCRIPT_VERSION + ' startad', 'ok');
   }
 
   // ===== HUVUDPANEL =====
@@ -1621,7 +1632,7 @@
     document.body.appendChild(p);
     p.innerHTML = `
       <div id="sb-head">
-        <div class="t">EditorBot</div>
+        <div class="t">EditorBot${versionBadgeHTML()}</div>
         <div id="sb-headbtns">
           <button type="button" data-m="min" title="Minimera">▁</button>
           <button type="button" data-m="max" title="Maximera">▢</button>
@@ -1843,7 +1854,7 @@
     let mode = GM_getValue('sidbot_window_mode', 'min');
     if (!['min', 'max'].includes(mode)) mode = 'min';
     document.querySelectorAll('#sb-headbtns button[data-m]').forEach(b => b.classList.toggle('on', b.dataset.m === mode));
-    vlog('EditorBot v4.9 startad');
+    vlog('EditorBot v' + SCRIPT_VERSION + ' startad');
   }
 
   // ===== INIT =====
