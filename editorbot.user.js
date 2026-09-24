@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      4.6
-// @description  v4.6: Fixat att "Fyll i API-nyckel och agent-ID först" kunde visas trots synligt ifyllda fält (standardagenten sparades aldrig, och kontrollen läste bara sparad data, inte fältens faktiska innehåll). Mörkt läge-kryssrutan är nu en riktig växlingsknapp (var snedvriden/ful som kryssruta), och textfälten tvingas nu alltid ha rätt bakgrund/textfärg (vitt/svart i ljust läge) med !important så CMS:ets egna stilar inte vinner. v4.5: EditorBot-panelen har nu en egen ⚙️-flik separat från huvudfliken, med ett mörkt/ljust temaval och API-nyckel/agent-ID-fälten. Temat sparas mellan sessioner och gäller både panelen och "Synka utvalda event"-listen. v4.4: Fixat bugg där "Synka utvalda event"-listen visades på fel sidor (t.ex. /objectpage/1474/) pga en delsträngsmatchning ("7" i S&D:s ID matchade siffran i "1474"). Listen visas nu bara på de 4 avsedda landningssidorna (Start SE/EN, S&G, S&D) — alla andra sidor (inklusive nya objectpage) visar EditorBot-panelen. v4.3: Objectpage-panelen fyller nu i alla vanliga textfält och kryssrutor (slug, canonical_link, twitter_title/description, related_events_title, go_live_at/expire_at, robot_noindex/nofollow, show_in_menus/show_mega_menu) från Mistral-agentens svar, inte bara ett litet urval. Fixat en bugg där extra_info skrevs till ett icke-existerande fält-ID. Mistral agent-ID förifyllt med standardagenten.
+// @version      4.7
+// @description  v4.7: Ny programmatisk blocklist-kontroll på agentens JSON-svar innan fälten fylls i — söker igenom alla strängfält utom "notes" (normaliserat: NFC, lowercase, kollapsade mellanslag) efter klichéord/fraser (sv+en), med undantag för verifierade delar av objektets eget namn. Vid träff skickas hela föregående JSON tillbaka till agenten med begäran om omskrivning enligt BLOCKLISTE-KONTROLL i systemprompten (max 1 omskrivningsförsök). Kvarstår träffar efter det fylls inga fält i — objektet flaggas istället för manuell granskning i statusraden och loggen. v4.6: Fixat att "Fyll i API-nyckel och agent-ID först" kunde visas trots synligt ifyllda fält (standardagenten sparades aldrig, och kontrollen läste bara sparad data, inte fältens faktiska innehåll). Mörkt läge-kryssrutan är nu en riktig växlingsknapp (var snedvriden/ful som kryssruta), och textfälten tvingas nu alltid ha rätt bakgrund/textfärg (vitt/svart i ljust läge) med !important så CMS:ets egna stilar inte vinner. v4.5: EditorBot-panelen har nu en egen ⚙️-flik separat från huvudfliken, med ett mörkt/ljust temaval och API-nyckel/agent-ID-fälten. Temat sparas mellan sessioner och gäller både panelen och "Synka utvalda event"-listen. v4.4: Fixat bugg där "Synka utvalda event"-listen visades på fel sidor (t.ex. /objectpage/1474/) pga en delsträngsmatchning ("7" i S&D:s ID matchade siffran i "1474"). Listen visas nu bara på de 4 avsedda landningssidorna (Start SE/EN, S&G, S&D) — alla andra sidor (inklusive nya objectpage) visar EditorBot-panelen. v4.3: Objectpage-panelen fyller nu i alla vanliga textfält och kryssrutor (slug, canonical_link, twitter_title/description, related_events_title, go_live_at/expire_at, robot_noindex/nofollow, show_in_menus/show_mega_menu) från Mistral-agentens svar, inte bara ett litet urval. Fixat en bugg där extra_info skrevs till ett icke-existerande fält-ID. Mistral agent-ID förifyllt med standardagenten.
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.com/cms/pages/*/edit/*
@@ -129,6 +129,84 @@
         ontimeout: () => reject(new Error('Timeout')), timeout: 120000
       });
     });
+  }
+
+  function extractJSON(text) { if (!text) return null; try { return JSON.parse(text.trim()); } catch {} return null; }
+
+  async function callMistralAgentForJSON(apiKey, agentId, inputText) {
+    const resp = await gmPost(MISTRAL_CONV,
+      { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
+      { agent_id: agentId, inputs: inputText, store: false });
+    const text = (resp.outputs?.[0]?.content || resp.messages?.[0]?.content || '').trim();
+    const data = extractJSON(text);
+    if (!data) throw new Error('Kunde inte tolka JSON.');
+    return data;
+  }
+
+  // ===== BLOCKLISTE-KONTROLL =====
+  // Programmatisk kontroll som körs på agentens JSON-output för att fånga
+  // klichéfyllda/överdrivna formuleringar (sv + en) innan fälten fylls i.
+  // Alla strängfält utom "notes" kontrolleras. Normalisering före matchning:
+  // NFC-unicode, lowercase, kollapsade mellanslag.
+  const BLOCKLIST_SV = /\b(mysig\w*|cozy|charm\w*|trevlig\w*|härlig\w*|genuin\w*|unik\w*|spännande|sevärd\w*|favorit\w*|populär\w*|älskad|pärla\w*|oas\w*|doldis|guldgruva|ett måste|väl värt ett besök|något för alla|det lilla extra|hjärtat av)\b/gi;
+  const BLOCKLIST_EN = /\b(best|fantastic\w*|wonderful\w*|perfect\w*|delightful\w*|charming\w*|quaint|hidden gem|must-visit|a must|beloved\w*|a gem|world-class|unforgettable\w*|gem of a)\b/gi;
+  const BLOCKLIST_PATTERNS = [BLOCKLIST_SV, BLOCKLIST_EN];
+
+  // Undantag: om objektets eget namn (title) legitimt innehåller ett annars
+  // förbjudet ord (t.ex. ett café som faktiskt heter "Mysiga Hörnet"), lägg
+  // till den normaliserade titeln (NFC, lowercase) här med vilka ord som
+  // får förekomma just i title-fältet för det objektet.
+  const BLOCKLIST_TITLE_EXCEPTIONS = {
+    // 'mysiga hörnet': ['mysiga']
+  };
+
+  function normalizeForBlocklist(text) {
+    return String(text).normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim();
+  }
+
+  // Kontrollerar alla strängfält i data (utom "notes") mot blocklistan och
+  // returnerar varje träff som { field, match }. title-fältet undantas för
+  // ord som finns i BLOCKLIST_TITLE_EXCEPTIONS för just den titeln.
+  function checkBlocklist(data) {
+    const hits = [];
+    if (!data || typeof data !== 'object') return hits;
+
+    const titleNorm = typeof data.title === 'string' ? normalizeForBlocklist(data.title) : '';
+    const titleAllowed = (BLOCKLIST_TITLE_EXCEPTIONS[titleNorm] || []).map(normalizeForBlocklist);
+    const seen = new Set();
+
+    for (const key of Object.keys(data)) {
+      if (key === 'notes') continue;
+      const value = data[key];
+      if (typeof value !== 'string' || !value) continue;
+
+      const norm = normalizeForBlocklist(value);
+      for (const pattern of BLOCKLIST_PATTERNS) {
+        pattern.lastIndex = 0;
+        let m;
+        while ((m = pattern.exec(norm))) {
+          const match = m[0];
+          if (key === 'title' && titleAllowed.includes(match)) continue;
+          // sv/en-listorna överlappar delvis (t.ex. "charm\w*" fångar redan
+          // "charming" som även finns explicit i en-listan) — dedupe så
+          // samma träff i samma fält inte rapporteras flera gånger.
+          const dedupeKey = key + '|' + match;
+          if (seen.has(dedupeKey)) continue;
+          seen.add(dedupeKey);
+          hits.push({ field: key, match });
+        }
+      }
+    }
+    return hits;
+  }
+
+  function buildBlocklistRetryMessage(previousData, hits) {
+    const hitLines = hits
+      .map(h => "Förbjudet ord/mönster hittat i fältet " + h.field + ": '" + h.match + "'.")
+      .join('\n');
+    return hitLines +
+      '\nSkriv om enligt BLOCKLISTE-KONTROLL i systemprompten och returnera om hela JSON-objektet.' +
+      '\n\nFöregående JSON-objekt:\n' + JSON.stringify(previousData);
   }
 
   function vlog(msg, kind = 'info') {
@@ -1180,7 +1258,7 @@
     // Länkar för andra sidor
     epOpenOtherPages();
 
-    vlog('Synka utvalda event v4.6 startad', 'ok');
+    vlog('Synka utvalda event v4.7 startad', 'ok');
   }
 
   // ===== HUVUDPANEL =====
@@ -1622,13 +1700,32 @@
       const agentInput = 'URL: ' + url + '\nSPRÅK: ' + lang + '\nis_restaurant: ' + isRestaurant;
 
       try {
-        const resp = await gmPost(MISTRAL_CONV,
-          { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
-          { agent_id: agentId, inputs: agentInput, store: false });
+        let data = await callMistralAgentForJSON(apiKey, agentId, agentInput);
 
-        const text = (resp.outputs?.[0]?.content || resp.messages?.[0]?.content || '').trim();
-        const data = extractJSON(text);
-        if (!data) throw new Error('Kunde inte tolka JSON.');
+        // Blocklist-kontroll: max 2 iterationer totalt (originalsvaret +
+        // högst en omskrivning). Om förbjudna ord/fraser kvarstår efter
+        // omskrivningen accepteras svaret INTE — objektet flaggas för
+        // manuell granskning istället för att fälten fylls i.
+        let hits = checkBlocklist(data);
+        let iteration = 1;
+        while (hits.length > 0 && iteration < 2) {
+          iteration++;
+          vlog('Blocklist-kontroll: träff i försök ' + (iteration - 1) + ' — ' +
+            hits.map(h => h.field + ': "' + h.match + '"').join(', '), 'warn');
+          setStatus('Förbjudna ord hittade, ber agenten skriva om (försök ' + iteration + '/2)...', 'work');
+
+          data = await callMistralAgentForJSON(apiKey, agentId, buildBlocklistRetryMessage(data, hits));
+          hits = checkBlocklist(data);
+        }
+
+        if (hits.length > 0) {
+          lastData = data;
+          vlog('Blocklist-kontroll: träffar kvarstår efter ' + iteration + ' försök, flaggar för manuell granskning — ' +
+            hits.map(h => h.field + ': "' + h.match + '"').join(', '), 'err');
+          setStatus('❌ Flaggat för manuell granskning (förbjudna ord kvarstår)', 'err');
+          return;
+        }
+
         lastData = data;
 
         const PLAIN_FIELDS = [
@@ -1674,8 +1771,6 @@
       } catch (e) { setStatus(e.message, 'err'); } finally { busy = false; $('sb-btn-sv').disabled = false; $('sb-btn-en').disabled = false; }
     }
 
-    function extractJSON(text) { if (!text) return null; try { return JSON.parse(text.trim()); } catch {} return null; }
-
     $('sb-btn-sv').addEventListener('click', () => createSidePage('sv'));
     $('sb-btn-en').addEventListener('click', () => createSidePage('en'));
 
@@ -1691,7 +1786,7 @@
     let mode = GM_getValue('sidbot_window_mode', 'min');
     if (!['min', 'max'].includes(mode)) mode = 'min';
     document.querySelectorAll('#sb-headbtns button[data-m]').forEach(b => b.classList.toggle('on', b.dataset.m === mode));
-    vlog('EditorBot v4.6 startad');
+    vlog('EditorBot v4.7 startad');
   }
 
   // ===== INIT =====
