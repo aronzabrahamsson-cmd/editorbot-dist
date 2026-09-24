@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      4.5
-// @description  v4.5: EditorBot-panelen har nu en egen ⚙️-flik separat från huvudfliken, med ett mörkt/ljust temaval och API-nyckel/agent-ID-fälten. Temat sparas mellan sessioner och gäller både panelen och "Synka utvalda event"-listen. v4.4: Fixat bugg där "Synka utvalda event"-listen visades på fel sidor (t.ex. /objectpage/1474/) pga en delsträngsmatchning ("7" i S&D:s ID matchade siffran i "1474"). Listen visas nu bara på de 4 avsedda landningssidorna (Start SE/EN, S&G, S&D) — alla andra sidor (inklusive nya objectpage) visar EditorBot-panelen. v4.3: Objectpage-panelen fyller nu i alla vanliga textfält och kryssrutor (slug, canonical_link, twitter_title/description, related_events_title, go_live_at/expire_at, robot_noindex/nofollow, show_in_menus/show_mega_menu) från Mistral-agentens svar, inte bara ett litet urval. Fixat en bugg där extra_info skrevs till ett icke-existerande fält-ID. Mistral agent-ID förifyllt med standardagenten.
+// @version      4.6
+// @description  v4.6: Fixat att "Fyll i API-nyckel och agent-ID först" kunde visas trots synligt ifyllda fält (standardagenten sparades aldrig, och kontrollen läste bara sparad data, inte fältens faktiska innehåll). Mörkt läge-kryssrutan är nu en riktig växlingsknapp (var snedvriden/ful som kryssruta), och textfälten tvingas nu alltid ha rätt bakgrund/textfärg (vitt/svart i ljust läge) med !important så CMS:ets egna stilar inte vinner. v4.5: EditorBot-panelen har nu en egen ⚙️-flik separat från huvudfliken, med ett mörkt/ljust temaval och API-nyckel/agent-ID-fälten. Temat sparas mellan sessioner och gäller både panelen och "Synka utvalda event"-listen. v4.4: Fixat bugg där "Synka utvalda event"-listen visades på fel sidor (t.ex. /objectpage/1474/) pga en delsträngsmatchning ("7" i S&D:s ID matchade siffran i "1474"). Listen visas nu bara på de 4 avsedda landningssidorna (Start SE/EN, S&G, S&D) — alla andra sidor (inklusive nya objectpage) visar EditorBot-panelen. v4.3: Objectpage-panelen fyller nu i alla vanliga textfält och kryssrutor (slug, canonical_link, twitter_title/description, related_events_title, go_live_at/expire_at, robot_noindex/nofollow, show_in_menus/show_mega_menu) från Mistral-agentens svar, inte bara ett litet urval. Fixat en bugg där extra_info skrevs till ett icke-existerande fält-ID. Mistral agent-ID förifyllt med standardagenten.
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.com/cms/pages/*/edit/*
@@ -1180,7 +1180,7 @@
     // Länkar för andra sidor
     epOpenOtherPages();
 
-    vlog('Synka utvalda event v4.5 startad', 'ok');
+    vlog('Synka utvalda event v4.6 startad', 'ok');
   }
 
   // ===== HUVUDPANEL =====
@@ -1317,13 +1317,19 @@
     .sb-key {
       width: 100%;
       box-sizing: border-box;
-      background: var(--vd-bg2);
+      /* !important: sidan (Wagtail-admin) har egna input-regler som annars
+         kan vinna över dessa och göra fältet oläsligt i ljust läge. */
+      background: var(--vd-bg2) !important;
       border: 1px solid var(--vd-line);
-      color: var(--vd-txt);
+      color: var(--vd-txt) !important;
       border-radius: 7px;
       padding: 8px 10px;
       font-size: 12.5px;
       font-family: inherit;
+      /* Alltid "light": vi sätter redan bakgrund/text själva för båda
+         teman, så detta bara hindrar webbläsarens EGEN mörkt-läge-styling
+         (t.ex. OS i mörkt läge) från att krocka med våra egna färger. */
+      color-scheme: light;
     }
     .sb-key:focus {
       outline: none;
@@ -1344,6 +1350,57 @@
       height: 16px;
       accent-color: var(--vd-accent);
       cursor: pointer;
+    }
+    .sb-toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--vd-txt);
+      margin-bottom: 16px;
+    }
+    .sb-toggle {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      width: 38px;
+      height: 22px;
+      flex-shrink: 0;
+      cursor: pointer;
+    }
+    .sb-toggle input {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      margin: 0;
+      cursor: pointer;
+    }
+    .sb-toggle-track {
+      position: absolute;
+      inset: 0;
+      background: var(--vd-line);
+      border-radius: 999px;
+      transition: background .15s;
+    }
+    .sb-toggle-track::before {
+      content: '';
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 16px;
+      height: 16px;
+      background: #fff;
+      border-radius: 50%;
+      box-shadow: 0 1px 3px rgba(0,0,0,.35);
+      transition: transform .15s;
+    }
+    .sb-toggle input:checked ~ .sb-toggle-track {
+      background: var(--vd-accent);
+    }
+    .sb-toggle input:checked ~ .sb-toggle-track::before {
+      transform: translateX(16px);
     }
     .sb-langrow {
       display: flex;
@@ -1469,13 +1526,26 @@
           <div class="sb-status" id="sb-status"></div>
         </div>
         <div class="sb-tab-panel" data-tab-panel="settings">
-          <label class="sb-check"><input type="checkbox" id="sb-darkmode"> 🌙 Mörkt läge</label>
+          <label class="sb-toggle-row">
+            <span>🌙 Mörkt läge</span>
+            <span class="sb-toggle">
+              <input type="checkbox" id="sb-darkmode">
+              <span class="sb-toggle-track"></span>
+            </span>
+          </label>
           <div class="sb-row"><label>Mistral API-nyckel</label><input type="text" id="sb-mkey" class="sb-key" placeholder="Mistral Bearer-nyckel" autocomplete="off" spellcheck="false"></div>
           <div class="sb-row"><label>Mistral agent-ID</label><input type="text" id="sb-magent" class="sb-key" placeholder="ag_..." autocomplete="off" spellcheck="false"></div>
         </div>
       </div>
       <div id="sb-logwrap"><div class="sb-loghdr">Logg <span><button type="button" id="sb-logjson">JSON</button><button type="button" id="sb-logcopy">📋</button><button type="button" id="sb-logclose">✕</button></span></div><div id="sb-log"></div></div>
     `;
+
+    // Om inget agent-ID sparats sedan tidigare, skriv standardagenten till
+    // lagringen direkt (inte bara till fältets visade värde) — annars visar
+    // fältet rätt ID men GM_getValue('sidbot_magent') förblir tom tills
+    // användaren råkar ändra och lämna fältet, vilket gjorde att "Fyll i
+    // API-nyckel och agent-ID först" kunde visas trots ett synligt värde.
+    if (!GM_getValue('sidbot_magent', '').trim()) GM_setValue('sidbot_magent', DEFAULT_MISTRAL_AGENT_ID);
 
     $('sb-mkey').value = GM_getValue('sidbot_mkey', '');
     $('sb-magent').value = GM_getValue('sidbot_magent', DEFAULT_MISTRAL_AGENT_ID);
@@ -1532,9 +1602,14 @@
     async function createSidePage(lang) {
       if (busy) return;
       const url = ($('sb-url').value || '').trim();
-      const apiKey = GM_getValue('sidbot_mkey', '').trim();
-      const agentId = GM_getValue('sidbot_magent', '').trim();
+      // Läs direkt från fälten (inte GM_getValue) — annars missas ett
+      // värde som användaren just skrivit in men inte lämnat fältet (blur)
+      // för, eftersom det är 'change'-eventet som sparar till lagringen.
+      const apiKey = ($('sb-mkey').value || '').trim();
+      const agentId = ($('sb-magent').value || '').trim();
       const isRestaurant = $('sb-restaurant').checked;
+      GM_setValue('sidbot_mkey', apiKey);
+      GM_setValue('sidbot_magent', agentId);
 
       if (!apiKey || !agentId) { setStatus('Fyll i API-nyckel och agent-ID först.', 'err'); return; }
       if (!url || !/^https?:\/\//i.test(url)) { setStatus('Ogiltig URL.', 'err'); return; }
@@ -1616,7 +1691,7 @@
     let mode = GM_getValue('sidbot_window_mode', 'min');
     if (!['min', 'max'].includes(mode)) mode = 'min';
     document.querySelectorAll('#sb-headbtns button[data-m]').forEach(b => b.classList.toggle('on', b.dataset.m === mode));
-    vlog('EditorBot v4.5 startad');
+    vlog('EditorBot v4.6 startad');
   }
 
   // ===== INIT =====
