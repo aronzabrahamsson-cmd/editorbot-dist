@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      4.7
-// @description  v4.7: Ny programmatisk blocklist-kontroll på agentens JSON-svar innan fälten fylls i — söker igenom alla strängfält utom "notes" (normaliserat: NFC, lowercase, kollapsade mellanslag) efter klichéord/fraser (sv+en), med undantag för verifierade delar av objektets eget namn. Vid träff skickas hela föregående JSON tillbaka till agenten med begäran om omskrivning enligt BLOCKLISTE-KONTROLL i systemprompten (max 1 omskrivningsförsök). Kvarstår träffar efter det fylls inga fält i — objektet flaggas istället för manuell granskning i statusraden och loggen. v4.6: Fixat att "Fyll i API-nyckel och agent-ID först" kunde visas trots synligt ifyllda fält (standardagenten sparades aldrig, och kontrollen läste bara sparad data, inte fältens faktiska innehåll). Mörkt läge-kryssrutan är nu en riktig växlingsknapp (var snedvriden/ful som kryssruta), och textfälten tvingas nu alltid ha rätt bakgrund/textfärg (vitt/svart i ljust läge) med !important så CMS:ets egna stilar inte vinner. v4.5: EditorBot-panelen har nu en egen ⚙️-flik separat från huvudfliken, med ett mörkt/ljust temaval och API-nyckel/agent-ID-fälten. Temat sparas mellan sessioner och gäller både panelen och "Synka utvalda event"-listen. v4.4: Fixat bugg där "Synka utvalda event"-listen visades på fel sidor (t.ex. /objectpage/1474/) pga en delsträngsmatchning ("7" i S&D:s ID matchade siffran i "1474"). Listen visas nu bara på de 4 avsedda landningssidorna (Start SE/EN, S&G, S&D) — alla andra sidor (inklusive nya objectpage) visar EditorBot-panelen. v4.3: Objectpage-panelen fyller nu i alla vanliga textfält och kryssrutor (slug, canonical_link, twitter_title/description, related_events_title, go_live_at/expire_at, robot_noindex/nofollow, show_in_menus/show_mega_menu) från Mistral-agentens svar, inte bara ett litet urval. Fixat en bugg där extra_info skrevs till ett icke-existerande fält-ID. Mistral agent-ID förifyllt med standardagenten.
+// @version      4.8
+// @description  v4.8: Loggen (📋) visar nu allt som skickas till och tas emot från Mistral för objectpage-panelen (tidigare visades i praktiken ingenting där) — den skickade texten, svarets nycklar, extraherad text och den tolkade JSON:en, både för originalsvaret och ev. blocklist-omskrivningar. Fixat att "Klar!" kunde visas trots att agenten inte gav någon användbar data (tomt titel-fält, t.ex. notes: "not_applicable") — det enda ifyllda var URL-fältet användaren själv skrivit. Scriptet fyller nu inte i formuläret och visar ett tydligt felmeddelande med agentens notes-orsak istället. v4.7: Ny programmatisk blocklist-kontroll på agentens JSON-svar innan fälten fylls i — söker igenom alla strängfält utom "notes" (normaliserat: NFC, lowercase, kollapsade mellanslag) efter klichéord/fraser (sv+en), med undantag för verifierade delar av objektets eget namn. Vid träff skickas hela föregående JSON tillbaka till agenten med begäran om omskrivning enligt BLOCKLISTE-KONTROLL i systemprompten (max 1 omskrivningsförsök). Kvarstår träffar efter det fylls inga fält i — objektet flaggas istället för manuell granskning i statusraden och loggen. v4.6: Fixat att "Fyll i API-nyckel och agent-ID först" kunde visas trots synligt ifyllda fält (standardagenten sparades aldrig, och kontrollen läste bara sparad data, inte fältens faktiska innehåll). Mörkt läge-kryssrutan är nu en riktig växlingsknapp (var snedvriden/ful som kryssruta), och textfälten tvingas nu alltid ha rätt bakgrund/textfärg (vitt/svart i ljust läge) med !important så CMS:ets egna stilar inte vinner. v4.5: EditorBot-panelen har nu en egen ⚙️-flik separat från huvudfliken, med ett mörkt/ljust temaval och API-nyckel/agent-ID-fälten. Temat sparas mellan sessioner och gäller både panelen och "Synka utvalda event"-listen. v4.4: Fixat bugg där "Synka utvalda event"-listen visades på fel sidor (t.ex. /objectpage/1474/) pga en delsträngsmatchning ("7" i S&D:s ID matchade siffran i "1474"). Listen visas nu bara på de 4 avsedda landningssidorna (Start SE/EN, S&G, S&D) — alla andra sidor (inklusive nya objectpage) visar EditorBot-panelen. v4.3: Objectpage-panelen fyller nu i alla vanliga textfält och kryssrutor (slug, canonical_link, twitter_title/description, related_events_title, go_live_at/expire_at, robot_noindex/nofollow, show_in_menus/show_mega_menu) från Mistral-agentens svar, inte bara ett litet urval. Fixat en bugg där extra_info skrevs till ett icke-existerande fält-ID. Mistral agent-ID förifyllt med standardagenten.
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.com/cms/pages/*/edit/*
@@ -133,13 +133,36 @@
 
   function extractJSON(text) { if (!text) return null; try { return JSON.parse(text.trim()); } catch {} return null; }
 
-  async function callMistralAgentForJSON(apiKey, agentId, inputText) {
+  // label taggar loggraderna (t.ex. "original" / "omskrivning 2") så att
+  // flera anrop i samma körning (t.ex. blocklist-omskrivningen) går att
+  // skilja åt i loggen.
+  async function callMistralAgentForJSON(apiKey, agentId, inputText, label) {
+    const tag = label ? '[' + label + '] ' : '';
+
+    vlog(tag + 'Skickar till Mistral (agent ' + agentId + '):');
+    vlog(inputText.length > 4000 ? inputText.slice(0, 4000) + '\n…(avkortat)' : inputText);
+
     const resp = await gmPost(MISTRAL_CONV,
       { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
       { agent_id: agentId, inputs: inputText, store: false });
+
+    vlog(tag + 'Mistral svarade. Nycklar i svar: ' + Object.keys(resp || {}).join(', '));
+
     const text = (resp.outputs?.[0]?.content || resp.messages?.[0]?.content || '').trim();
+    vlog(tag + 'Extraherad text: ' + (text ? text.length + ' tecken' : 'TOM'));
+    if (text) vlog(tag + 'Textens början: ' + text.slice(0, 300).replace(/\n/g, '\\n'));
+
     const data = extractJSON(text);
-    if (!data) throw new Error('Kunde inte tolka JSON.');
+    if (!data) {
+      vlog(tag + 'JSON-tolkning MISSLYCKADES.', 'err');
+      try { vlog(tag + 'Hela svarsobjektet (JSON): ' + JSON.stringify(resp).slice(0, 6000)); } catch {}
+      vlog(tag + 'Extraherad text (hela): ' + (text ? text.slice(0, 6000) : '(tom text)'), 'err');
+      throw new Error('Kunde inte tolka agentens svar som JSON. Se loggen (📋) för råsvaret.');
+    }
+
+    vlog(tag + 'JSON tolkad OK. Fält (' + Object.keys(data).length + '): ' + Object.keys(data).join(', '), 'ok');
+    try { vlog(tag + 'Rådata (JSON): ' + JSON.stringify(data).slice(0, 6000)); } catch {}
+
     return data;
   }
 
@@ -1258,7 +1281,7 @@
     // Länkar för andra sidor
     epOpenOtherPages();
 
-    vlog('Synka utvalda event v4.7 startad', 'ok');
+    vlog('Synka utvalda event v4.8 startad', 'ok');
   }
 
   // ===== HUVUDPANEL =====
@@ -1700,7 +1723,7 @@
       const agentInput = 'URL: ' + url + '\nSPRÅK: ' + lang + '\nis_restaurant: ' + isRestaurant;
 
       try {
-        let data = await callMistralAgentForJSON(apiKey, agentId, agentInput);
+        let data = await callMistralAgentForJSON(apiKey, agentId, agentInput, 'original');
 
         // Blocklist-kontroll: max 2 iterationer totalt (originalsvaret +
         // högst en omskrivning). Om förbjudna ord/fraser kvarstår efter
@@ -1714,7 +1737,7 @@
             hits.map(h => h.field + ': "' + h.match + '"').join(', '), 'warn');
           setStatus('Förbjudna ord hittade, ber agenten skriva om (försök ' + iteration + '/2)...', 'work');
 
-          data = await callMistralAgentForJSON(apiKey, agentId, buildBlocklistRetryMessage(data, hits));
+          data = await callMistralAgentForJSON(apiKey, agentId, buildBlocklistRetryMessage(data, hits), 'omskrivning ' + iteration);
           hits = checkBlocklist(data);
         }
 
@@ -1727,6 +1750,22 @@
         }
 
         lastData = data;
+
+        // Om agenten inte gav någon titel har den sannolikt inte kunnat
+        // hämta/tolka sidan (notes brukar då förklara varför, t.ex.
+        // "not_applicable", "could_not_fetch_url"). Utan detta visade
+        // scriptet "Klar!" även när ALLA fält var tomma — det enda som
+        // faktiskt syntes ifyllt var URL-fältet, som användaren skrivit
+        // in själv och som scriptet aldrig rör.
+        if (!data.title || !String(data.title).trim()) {
+          const reason = data.notes && String(data.notes).trim() ? 'notes: "' + data.notes + '"' : 'inget titel-fält i svaret';
+          vlog('Agenten gav ingen titel — fyller INTE i formuläret (' + reason + ').', 'err');
+          setStatus('❌ Agenten gav ingen användbar data (' + reason + ')', 'err');
+          return;
+        }
+        if (data.notes && String(data.notes).trim()) {
+          vlog('OBS — agentens notes-fält: "' + data.notes + '". Dubbelkolla fälten extra noga.', 'warn');
+        }
 
         const PLAIN_FIELDS = [
           ['title','id_title'],
@@ -1786,7 +1825,7 @@
     let mode = GM_getValue('sidbot_window_mode', 'min');
     if (!['min', 'max'].includes(mode)) mode = 'min';
     document.querySelectorAll('#sb-headbtns button[data-m]').forEach(b => b.classList.toggle('on', b.dataset.m === mode));
-    vlog('EditorBot v4.7 startad');
+    vlog('EditorBot v4.8 startad');
   }
 
   // ===== INIT =====
