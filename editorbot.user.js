@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      4.15
-// @description  v4.15: Två nya knappar, "🇸🇪 → Svenska" och "🇺🇸 → English (US)", översätter objektsidans egna textfält i-place (title, rich_text, extra_info_text, seo_title, search_description, og_title/description, twitter_title/description, list_title, external_link_text, booking_link_text, related_events_title) — rör aldrig adress/kontakt/URL:er/slug/datum/kryssrutor. Amerikansk engelska, inte brittisk. Samma blocklist-kontroll/omskrivnings-slinga som AI-skapandet skyddar mot att en "naturlig" översättning smyger in klichéer. Portade även Draftail-läsning/skrivning (readDraftailText/mountDraftail/updateDraftail) från eventbot för att korrekt uppdatera rich_text/extra_info_text-fälten (används av översättningen; AI-skapandets egen ifyllning av dessa fält väntar på en separat fix). v4.14: Ny bildautomation — när en bild väljs manuellt i bilduppladdningsmodalen (featured_image/og_image/twitter_image, samma modal som eventbot använder) genereras alt-text (sv/en) automatiskt via pixtral-synmodellen, och kredit/rättighetsdatum (dagens datum + 5 år) fylls i. Kräver sparad Mistral API-nyckel (⚙️-fliken). v4.10: Mörkblått versionsmärke bredvid rubriken i båda widgetarna, så man alltid ser exakt vilken version som körs. v4.9: Fix för web_search-svar som inte gick att tolka som JSON. v4.8: Detaljerad loggning av allt som skickas/tas emot från Mistral, plus fix för falskt "Klar!" när agenten inte gav någon användbar data. Äldre versioner: se git-historiken.
+// @version      4.16
+// @description  v4.16: Fixat att AI-skapandet inte visade rich_text/extra_info i den synliga editorn trots att agenten gav bra text — dessa är Draftail-fält vars dolda input innehåller Draft.js egen JSON, inte klartext, så den gamla simulateInput skrev bara till det dolda fältet utan att editorn någonsin uppdaterades. Använder nu samma updateDraftail() som v4.15:s översättningsknappar redan bevisat fungerar. v4.15: Två nya knappar, "🇸🇪 → Svenska" och "🇺🇸 → English (US)", översätter objektsidans egna textfält i-place (title, rich_text, extra_info_text, seo_title, search_description, og_title/description, twitter_title/description, list_title, external_link_text, booking_link_text, related_events_title) — rör aldrig adress/kontakt/URL:er/slug/datum/kryssrutor. Amerikansk engelska, inte brittisk. Samma blocklist-kontroll/omskrivnings-slinga som AI-skapandet skyddar mot att en "naturlig" översättning smyger in klichéer. Portade även Draftail-läsning/skrivning (readDraftailText/mountDraftail/updateDraftail) från eventbot för att korrekt uppdatera rich_text/extra_info_text-fälten (används av översättningen; AI-skapandets egen ifyllning av dessa fält väntar på en separat fix). v4.14: Ny bildautomation — när en bild väljs manuellt i bilduppladdningsmodalen (featured_image/og_image/twitter_image, samma modal som eventbot använder) genereras alt-text (sv/en) automatiskt via pixtral-synmodellen, och kredit/rättighetsdatum (dagens datum + 5 år) fylls i. Kräver sparad Mistral API-nyckel (⚙️-fliken). v4.10: Mörkblått versionsmärke bredvid rubriken i båda widgetarna, så man alltid ser exakt vilken version som körs. v4.9: Fix för web_search-svar som inte gick att tolka som JSON. v4.8: Detaljerad loggning av allt som skickas/tas emot från Mistral, plus fix för falskt "Klar!" när agenten inte gav någon användbar data. Äldre versioner: se git-historiken.
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.com/cms/pages/*/edit/*
@@ -30,7 +30,7 @@
   // överst i filen. Används i loggens startrad och i versionsmärket i
   // widgetarnas rubrik (mörkblå text/bakgrund, oberoende av tema, så man
   // alltid kan se på skärmen exakt vilken version som körs).
-  const SCRIPT_VERSION = '4.15';
+  const SCRIPT_VERSION = '4.16';
   function versionBadgeHTML() {
     return '<span style="display:inline-block;margin-left:8px;padding:1px 7px;' +
       'border-radius:5px;background:#dbe7ff;color:#0b3d91;font-size:11px;' +
@@ -2210,9 +2210,23 @@
 
         if (isRestaurant && data.booking_link) simulateInput($('id_booking_link'), data.booking_link);
         if (isRestaurant && data.booking_link_text) simulateInput($('id_booking_link_text'), data.booking_link_text);
-        if (data.rich_text) simulateInput($('id_rich_text'), data.rich_text);
+
+        // rich_text/extra_info_text är Draftail-fält (React/Draft.js), inte
+        // vanliga textfält — deras dolda <input> innehåller Draft.js egen
+        // JSON-serialisering, inte klartext. simulateInput skrev tidigare en
+        // vanlig sträng dit, vilket bara ändrade det dolda fältet utan att
+        // den SYNLIGA editorn någonsin visade texten (sidan såg tom ut trots
+        // att agenten gav en bra beskrivning). updateDraftail() går via
+        // Draft.js egna React-props och uppdaterar editorn korrekt.
+        if (data.rich_text) {
+          const ok = await updateDraftail('id_rich_text', data.rich_text);
+          vlog(ok ? 'Rich text ifyllt (' + data.rich_text.length + ' tecken).' : 'Rich text: kunde inte fyllas i, se felet ovan.', ok ? 'ok' : 'err');
+        }
         const extraInfo = data.extra_info_text || data.extra_info;
-        if (extraInfo) simulateInput($('id_extra_info_text'), extraInfo);
+        if (extraInfo) {
+          const ok = await updateDraftail('id_extra_info_text', extraInfo);
+          vlog(ok ? 'Extra info ifylld (' + extraInfo.length + ' tecken).' : 'Extra info: kunde inte fyllas i, se felet ovan.', ok ? 'ok' : 'err');
+        }
         setStatus('Klar!', 'ok');
       } catch (e) { setStatus(e.message, 'err'); } finally { busy = false; $('sb-btn-sv').disabled = false; $('sb-btn-en').disabled = false; }
     }
