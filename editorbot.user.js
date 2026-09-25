@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      4.14
-// @description  v4.14: Fixat att en flerordssökning i chooser-modalen (t.ex. "Yoga at") kunde misslyckas trigga CMS:ets sökning eftersom sökfältet verkar kräva ett avslutande mellanslag efter ordet för att söka — sökfrasen får nu alltid ett sådant mellanslag, och en riktig tangenttryckning för det dispatchas. Lade även till en tydlig "OSÄKER TRÄFF"-varning (i loggen och i slutstatusen, med radnummer) när en rad fylls i via den svagast underbyggda matchningsgrenen, så en felaktigt vald träff går att upptäcka utan att läsa hela loggen. v4.13: Ny bildautomation — när en bild väljs manuellt i bilduppladdningsmodalen (featured_image/og_image/twitter_image, samma modal som eventbot använder) genereras alt-text (sv/en) automatiskt via pixtral-synmodellen, och kredit/rättighetsdatum (dagens datum + 5 år) fylls i. Kräver sparad Mistral API-nyckel (⚙️-fliken). v4.10: Mörkblått versionsmärke bredvid rubriken i båda widgetarna, så man alltid ser exakt vilken version som körs. v4.9: Fix för web_search-svar som inte gick att tolka som JSON. v4.8: Detaljerad loggning av allt som skickas/tas emot från Mistral, plus fix för falskt "Klar!" när agenten inte gav någon användbar data. Äldre versioner: se git-historiken.
+// @version      4.15
+// @description  v4.15: Två nya knappar, "🇸🇪 → Svenska" och "🇺🇸 → English (US)", översätter objektsidans egna textfält i-place (title, rich_text, extra_info_text, seo_title, search_description, og_title/description, twitter_title/description, list_title, external_link_text, booking_link_text, related_events_title) — rör aldrig adress/kontakt/URL:er/slug/datum/kryssrutor. Amerikansk engelska, inte brittisk. Samma blocklist-kontroll/omskrivnings-slinga som AI-skapandet skyddar mot att en "naturlig" översättning smyger in klichéer. Portade även Draftail-läsning/skrivning (readDraftailText/mountDraftail/updateDraftail) från eventbot för att korrekt uppdatera rich_text/extra_info_text-fälten (används av översättningen; AI-skapandets egen ifyllning av dessa fält väntar på en separat fix). v4.14: Ny bildautomation — när en bild väljs manuellt i bilduppladdningsmodalen (featured_image/og_image/twitter_image, samma modal som eventbot använder) genereras alt-text (sv/en) automatiskt via pixtral-synmodellen, och kredit/rättighetsdatum (dagens datum + 5 år) fylls i. Kräver sparad Mistral API-nyckel (⚙️-fliken). v4.10: Mörkblått versionsmärke bredvid rubriken i båda widgetarna, så man alltid ser exakt vilken version som körs. v4.9: Fix för web_search-svar som inte gick att tolka som JSON. v4.8: Detaljerad loggning av allt som skickas/tas emot från Mistral, plus fix för falskt "Klar!" när agenten inte gav någon användbar data. Äldre versioner: se git-historiken.
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.com/cms/pages/*/edit/*
@@ -22,6 +22,7 @@
   'use strict';
 
   const MISTRAL_CONV = 'https://api.mistral.ai/v1/conversations';
+  const MISTRAL_CHAT = 'https://api.mistral.ai/v1/chat/completions';
   const DEFAULT_MISTRAL_AGENT_ID = 'ag_01a00f03d056722bb5310f4738447535';
   const THEME_KEY = 'sidbot_theme';
 
@@ -29,7 +30,7 @@
   // överst i filen. Används i loggens startrad och i versionsmärket i
   // widgetarnas rubrik (mörkblå text/bakgrund, oberoende av tema, så man
   // alltid kan se på skärmen exakt vilken version som körs).
-  const SCRIPT_VERSION = '4.14';
+  const SCRIPT_VERSION = '4.15';
   function versionBadgeHTML() {
     return '<span style="display:inline-block;margin-left:8px;padding:1px 7px;' +
       'border-radius:5px;background:#dbe7ff;color:#0b3d91;font-size:11px;' +
@@ -261,6 +262,96 @@
       '\n\nFöregående JSON-objekt:\n' + JSON.stringify(previousData);
   }
 
+  // ===== ÖVERSÄTTNING =====
+  // Fälten som "Översätt till svenska/engelska" täcker: allt läsbart
+  // innehåll utom sådant som ALDRIG ska ändras av en översättning — adress,
+  // postnummer, stad, telefon, e-post, alla URL:er (external_link,
+  // booking_link, canonical_link), slug (styr sidans egen URL), datum och
+  // kryssrutor. rich_text/extra_info_text är Draftail-fält och läses/skrivs
+  // därför via readDraftailText/updateDraftail, inte som vanliga textfält.
+  const TRANSLATABLE_FIELDS = [
+    ['title', 'id_title', 'plain'],
+    ['rich_text', 'id_rich_text', 'draftail'],
+    ['extra_info_text', 'id_extra_info_text', 'draftail'],
+    ['seo_title', 'id_seo_title', 'plain'],
+    ['search_description', 'id_search_description', 'plain'],
+    ['og_title', 'id_og_title', 'plain'],
+    ['og_description', 'id_og_description', 'plain'],
+    ['twitter_title', 'id_twitter_title', 'plain'],
+    ['twitter_description', 'id_twitter_description', 'plain'],
+    ['list_title', 'id_list_title', 'plain'],
+    ['external_link_text', 'id_external_link_text', 'plain'],
+    ['booking_link_text', 'id_booking_link_text', 'plain'],
+    ['related_events_title', 'id_related_events_title', 'plain']
+  ];
+
+  const TRANSLATE_LANG_NAME = { sv: 'svenska', en: 'amerikansk engelska (US English)' };
+
+  function readTranslatableFields() {
+    const values = {};
+    for (const [key, id, kind] of TRANSLATABLE_FIELDS) {
+      values[key] = kind === 'draftail' ? readDraftailText(id) : (($(id) || {}).value || '');
+    }
+    return values;
+  }
+
+  async function writeTranslatableFields(values) {
+    let written = 0;
+    for (const [key, id, kind] of TRANSLATABLE_FIELDS) {
+      const text = values[key];
+      if (!text) continue;
+      if (kind === 'draftail') {
+        if (await updateDraftail(id, text)) written++;
+      } else if (simulateInput($(id), text)) {
+        written++;
+      }
+    }
+    return written;
+  }
+
+  // Samma BLOCKLISTE-KONTROLL-rubrik som objektsida-agentens systemprompt
+  // använder, så buildBlocklistRetryMessage() (skriven för den agenten) kan
+  // återanvändas oförändrad för översättningens omskrivningsförsök.
+  function buildTranslateSystemPrompt(targetLang) {
+    const langName = TRANSLATE_LANG_NAME[targetLang];
+    return 'Du är en professionell översättare för Visit Stockholms webbplats.\n' +
+      'Du får ett JSON-objekt där varje värde är en text som ska översättas till ' + langName + '.\n' +
+      'Returnera ENBART ett JSON-objekt med EXAKT SAMMA NYCKLAR som indata, där varje värde är ' +
+      'den översatta texten. Om ett värde i indata är en tom sträng ("") ska det förbli en tom ' +
+      'sträng i svaret. Ingen text utanför JSON-objektet, inga kodblock, inga kommentarer.\n\n' +
+      'Översätt naturligt och idiomatiskt, aldrig ord för ord.' +
+      (targetLang === 'en'
+        ? ' Använd AMERIKANSK engelska (US English), inte brittisk — t.ex. "neighborhood" inte ' +
+          '"neighbourhood", "color" inte "colour", "center" inte "centre".'
+        : '') +
+      '\n\nBLOCKLISTE-KONTROLL — OVILLKORLIGT: Använd ALDRIG något av följande ord/fraser, på ' +
+      'något språk, i någon böjningsform, i den översatta texten (undantag: ordet är en ' +
+      'verifierbar del av objektets eget namn i title-fältet):\n' +
+      '"mysig(t)", "cozy", "charmig", "trevlig", "härlig", "genuin(t)", "unik", "spännande", ' +
+      '"sevärd", "favorit", "populär", "älskad", "pärla", "oas", "doldis", "guldgruva", ' +
+      '"ett måste", "väl värt ett besök", "något för alla", "det lilla extra", "hjärtat av", ' +
+      '"best", "fantastic", "wonderful", "perfect", "delightful", "charming", "quaint", ' +
+      '"hidden gem", "must-visit", "a must", "beloved", "a gem", "world-class", "unforgettable".\n' +
+      'Hittar du ett sådant ord i din egen översättning: skriv om med en konkret, saklig ' +
+      'formulering istället. Kontrollera hela JSON:en en gång till innan du svarar.';
+  }
+
+  async function callTranslatorForJSON(apiKey, targetLang, userContent) {
+    const body = {
+      model: 'mistral-small-latest',
+      messages: [
+        { role: 'system', content: buildTranslateSystemPrompt(targetLang) },
+        { role: 'user', content: userContent }
+      ]
+    };
+    const resp = await gmPost(MISTRAL_CHAT,
+      { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey }, body);
+    const text = resp.choices?.[0]?.message?.content || '';
+    const data = extractJSON(text);
+    if (!data) throw new Error('Kunde inte tolka översättningssvaret som JSON.');
+    return data;
+  }
+
   // ===== BILDAUTOMATION (alt-text via pixtral) =====
   // Samma bilduppladdningsmodal (Wagtails globala image-chooser) används av
   // både eventbot och EditorBot, så fält-ID:na nedan är identiska med
@@ -470,6 +561,83 @@
     else el.value = value;
     el.dispatchEvent(new Event('input', { bubbles: true }));
     return true;
+  }
+
+  // ===== DRAFTAIL (rich_text/extra_info_text) — läsa och skriva korrekt =====
+  // Wagtails Draftail-fält (rich_text, extra_info_text) är INTE vanliga
+  // textfält: det synliga fältet är en React/Draft.js-editor, och det
+  // dolda <input>:et (id_rich_text etc.) innehåller Draft.js egen
+  // JSON-serialisering av innehållet ({"blocks":[...],...}), inte klartext.
+  // Att skriva en vanlig sträng dit med simulateInput uppdaterar bara det
+  // dolda fältet, aldrig den synliga editorn eller Draft.js interna state
+  // — porterat rakt av från eventbot, som redan har detta beprövat.
+  function readDraftailText(fieldId) {
+    const hidden = document.getElementById(fieldId);
+    if (!hidden || !hidden.value) return '';
+    try { return (JSON.parse(hidden.value).blocks || []).map(b => b.text || '').join('\n'); }
+    catch { return ''; }
+  }
+
+  async function mountDraftail(fieldId) {
+    const hidden = document.getElementById(fieldId);
+    if (!hidden) return null;
+    const wrapper = hidden.closest('.w-field, .w-panel, [data-field]') || hidden.parentElement;
+    const findRoot = () =>
+      wrapper?.querySelector('.DraftEditor-root') ||
+      wrapper?.querySelector('.Draftail-Editor .DraftEditor-root');
+    let root = findRoot();
+    if (!root) {
+      hidden.scrollIntoView({ block: 'center' });
+      const clickTarget = wrapper?.querySelector('.Draftail-Editor') || wrapper || hidden;
+      clickTarget.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      clickTarget.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+      clickTarget.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      for (let i = 0; i < 40 && !root; i++) {
+        await wait(75);
+        root = findRoot();
+      }
+    }
+    return root || null;
+  }
+
+  function getDraftProps(root) {
+    const instKey = Object.keys(root).find(k => k.startsWith('__reactInternalInstance$'));
+    let node = instKey ? root[instKey] : null;
+    let hops = 0;
+    while (node && hops < 30) {
+      const mp = node.memoizedProps;
+      if (mp && mp.onChange && mp.editorState) return mp;
+      node = node.return || node._debugOwner || null;
+      hops++;
+    }
+    return null;
+  }
+
+  async function updateDraftail(fieldId, text) {
+    try {
+      const root = await mountDraftail(fieldId);
+      if (!root) {
+        vlog('Draftail: hittade inget rich text-fält för ' + fieldId + ' — fältet lämnas orört.', 'err');
+        return false;
+      }
+      const props = getDraftProps(root);
+      if (!props) {
+        vlog('Draftail: hittade fältet ' + fieldId + ' men inte dess React-props — fältet lämnas orört.', 'err');
+        return false;
+      }
+      const editorState = props.editorState;
+      const EditorState = editorState.constructor;
+      const currentContent = editorState.getCurrentContent();
+      const ContentState = currentContent.constructor;
+      const newContent = ContentState.createFromText(String(text), '\n');
+      let newState = EditorState.createWithContent(newContent);
+      if (typeof EditorState.moveSelectionToEnd === 'function') newState = EditorState.moveSelectionToEnd(newState);
+      props.onChange(newState);
+      return true;
+    } catch (err) {
+      vlog('Draftail: fel vid ifyllning av ' + fieldId + ': ' + (err && err.message ? err.message : err), 'err');
+      return false;
+    }
   }
 
   // Kända icke-resultat i chooser-modalen (bläddringsknappar m.m.) som ALDRIG
@@ -1858,6 +2026,11 @@
             <button type="button" id="sb-btn-sv">🇸🇪 Svenska</button>
             <button type="button" id="sb-btn-en">🇺🇸 English</button>
           </div>
+          <div class="sb-row"><label>Översätt sidans fält</label></div>
+          <div class="sb-langrow">
+            <button type="button" id="sb-btn-translate-sv" title="Skriver över sidans egna textfält med en svensk översättning">🇸🇪 → Svenska</button>
+            <button type="button" id="sb-btn-translate-en" title="Skriver över sidans egna textfält med en amerikansk-engelsk översättning">🇺🇸 → English (US)</button>
+          </div>
           <div class="sb-status" id="sb-status"></div>
         </div>
         <div class="sb-tab-panel" data-tab-panel="settings">
@@ -2044,8 +2217,77 @@
       } catch (e) { setStatus(e.message, 'err'); } finally { busy = false; $('sb-btn-sv').disabled = false; $('sb-btn-en').disabled = false; }
     }
 
+    // Översätter sidans EGNA fält i-place (skriver över samma fält som
+    // AI-skapandet fyller i ovan) — rör aldrig adress/kontakt/URL:er/slug/
+    // datum/kryssrutor, se TRANSLATABLE_FIELDS. Körs oberoende av hur
+    // fälten fick sitt nuvarande innehåll (AI-skapande eller manuell
+    // redigering), och kan köras när som helst medan sidan är öppen.
+    async function translatePage(targetLang) {
+      if (busy) return;
+      const apiKey = ($('sb-mkey').value || '').trim();
+      if (!apiKey) { setStatus('Fyll i API-nyckel först (⚙️-fliken).', 'err'); return; }
+
+      busy = true;
+      $('sb-btn-sv').disabled = true;
+      $('sb-btn-en').disabled = true;
+      $('sb-btn-translate-sv').disabled = true;
+      $('sb-btn-translate-en').disabled = true;
+
+      const langName = TRANSLATE_LANG_NAME[targetLang];
+
+      try {
+        const source = readTranslatableFields();
+        const nonEmptyKeys = Object.keys(source).filter(k => source[k]);
+        if (nonEmptyKeys.length === 0) {
+          setStatus('Inga ifyllda textfält att översätta.', 'err');
+          return;
+        }
+        vlog('Översättning → ' + langName + ': läser ' + nonEmptyKeys.length + ' fält: ' + nonEmptyKeys.join(', '));
+        setStatus('Skickar till Mistral (' + langName + ')...', 'work');
+
+        let translated = await callTranslatorForJSON(apiKey, targetLang, JSON.stringify(source));
+
+        // Samma blocklist-kontroll/omskrivnings-slinga som AI-skapandet:
+        // max 2 iterationer totalt, acceptera ALDRIG ett svar med kvarstående
+        // förbjudna ord/fraser — en "naturligt klingande" översättning kan
+        // annars smyga in klichéer som inte fanns i källtexten.
+        let hits = checkBlocklist(translated);
+        let iteration = 1;
+        while (hits.length > 0 && iteration < 2) {
+          iteration++;
+          vlog('Översättning: blocklist-träff i försök ' + (iteration - 1) + ' — ' +
+            hits.map(h => h.field + ': "' + h.match + '"').join(', '), 'warn');
+          setStatus('Förbjudna ord i översättningen, försöker igen (' + iteration + '/2)...', 'work');
+          translated = await callTranslatorForJSON(apiKey, targetLang, buildBlocklistRetryMessage(translated, hits));
+          hits = checkBlocklist(translated);
+        }
+
+        if (hits.length > 0) {
+          vlog('Översättning: blocklist-träffar kvarstår efter ' + iteration + ' försök — fälten lämnas ORÖRDA: ' +
+            hits.map(h => h.field + ': "' + h.match + '"').join(', '), 'err');
+          setStatus('❌ Osäker översättning (förbjudna ord kvarstår) — fälten orörda', 'err');
+          return;
+        }
+
+        const written = await writeTranslatableFields(translated);
+        vlog('Översättning klar (' + langName + '). Uppdaterade ' + written + ' fält.', 'ok');
+        setStatus('✅ Översatt till ' + langName + ' (' + written + ' fält)', 'ok');
+      } catch (e) {
+        vlog('Översättning: fel — ' + e.message, 'err');
+        setStatus('❌ ' + e.message, 'err');
+      } finally {
+        busy = false;
+        $('sb-btn-sv').disabled = false;
+        $('sb-btn-en').disabled = false;
+        $('sb-btn-translate-sv').disabled = false;
+        $('sb-btn-translate-en').disabled = false;
+      }
+    }
+
     $('sb-btn-sv').addEventListener('click', () => createSidePage('sv'));
     $('sb-btn-en').addEventListener('click', () => createSidePage('en'));
+    $('sb-btn-translate-sv').addEventListener('click', () => translatePage('sv'));
+    $('sb-btn-translate-en').addEventListener('click', () => translatePage('en'));
 
     function setStatus(msg, kind) {
       const s = document.getElementById('sb-status');
