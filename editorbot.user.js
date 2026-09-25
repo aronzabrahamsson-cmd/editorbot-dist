@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      4.13
-// @description  v4.13: Fixat att "Kopiera" i Synka utvalda event-listen kunde kopiera med event som precis raderats manuellt men inte sparats — Wagtails radera-knapp döljer bara raden i DOM:en tills sidan sparas, den underliggande datan fanns alltså kvar. Kopiera hoppar nu över dolda/raderade rader. Lade även till mycket mer detaljerad loggning per rad (index, id, ordning, text, om den inkluderades eller hoppades över och varför) för enklare felsökning. v4.12: Ny bildautomation — när en bild väljs manuellt i bilduppladdningsmodalen (featured_image/og_image/twitter_image, samma modal som eventbot använder) genereras alt-text (sv/en) automatiskt via pixtral-synmodellen, och kredit/rättighetsdatum (dagens datum + 5 år) fylls i. Kräver sparad Mistral API-nyckel (⚙️-fliken). v4.10: Mörkblått versionsmärke bredvid rubriken i båda widgetarna, så man alltid ser exakt vilken version som körs. v4.9: Fix för web_search-svar som inte gick att tolka som JSON. v4.8: Detaljerad loggning av allt som skickas/tas emot från Mistral, plus fix för falskt "Klar!" när agenten inte gav någon användbar data. Äldre versioner: se git-historiken.
+// @version      4.14
+// @description  v4.14: Fixat att en flerordssökning i chooser-modalen (t.ex. "Yoga at") kunde misslyckas trigga CMS:ets sökning eftersom sökfältet verkar kräva ett avslutande mellanslag efter ordet för att söka — sökfrasen får nu alltid ett sådant mellanslag, och en riktig tangenttryckning för det dispatchas. Lade även till en tydlig "OSÄKER TRÄFF"-varning (i loggen och i slutstatusen, med radnummer) när en rad fylls i via den svagast underbyggda matchningsgrenen, så en felaktigt vald träff går att upptäcka utan att läsa hela loggen. v4.13: Ny bildautomation — när en bild väljs manuellt i bilduppladdningsmodalen (featured_image/og_image/twitter_image, samma modal som eventbot använder) genereras alt-text (sv/en) automatiskt via pixtral-synmodellen, och kredit/rättighetsdatum (dagens datum + 5 år) fylls i. Kräver sparad Mistral API-nyckel (⚙️-fliken). v4.10: Mörkblått versionsmärke bredvid rubriken i båda widgetarna, så man alltid ser exakt vilken version som körs. v4.9: Fix för web_search-svar som inte gick att tolka som JSON. v4.8: Detaljerad loggning av allt som skickas/tas emot från Mistral, plus fix för falskt "Klar!" när agenten inte gav någon användbar data. Äldre versioner: se git-historiken.
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.com/cms/pages/*/edit/*
@@ -29,7 +29,7 @@
   // överst i filen. Används i loggens startrad och i versionsmärket i
   // widgetarnas rubrik (mörkblå text/bakgrund, oberoende av tema, så man
   // alltid kan se på skärmen exakt vilken version som körs).
-  const SCRIPT_VERSION = '4.13';
+  const SCRIPT_VERSION = '4.14';
   function versionBadgeHTML() {
     return '<span style="display:inline-block;margin-left:8px;padding:1px 7px;' +
       'border-radius:5px;background:#dbe7ff;color:#0b3d91;font-size:11px;' +
@@ -689,7 +689,7 @@
     const modal = await waitForChooserModal(10000);
     if (!modal) {
       vlog('Chooser-modal hittades inte!', 'err');
-      return false;
+      return { ok: false, uncertain: false };
     }
 
     let searchInput = modal.querySelector('input[type="text"], input[type="search"]');
@@ -700,7 +700,7 @@
     if (!searchInput) {
       vlog('Inget sökfält hittat!', 'err');
       await closeChooserModal();
-      return false;
+      return { ok: false, uncertain: false };
     }
 
     // Rensa söktermen. cleanTerm (hela titeln) används för att POÄNGSÄTTA
@@ -709,8 +709,18 @@
     // sökfältet är bara de första 1–2 orden.
     const cleanTerm = cleanDisplayText(searchTerm);
     const queryWords = cleanTerm.split(/\s+/).filter(Boolean);
-    const searchQuery = queryWords.length <= 1 ? queryWords.join(' ') : queryWords.slice(0, 2).join(' ');
-    vlog('Sökfält hittat, fyller i: "' + searchQuery + '" (av hela titeln "' + cleanTerm + '")');
+    let searchQuery = queryWords.length <= 1 ? queryWords.join(' ') : queryWords.slice(0, 2).join(' ');
+    // CMS:ets sökfält verkar bara trigga sin AJAX-sökning på en mellanslags-
+    // tangenttryckning efter ett avslutat ord, inte på valfri inmatning. En
+    // flerordsfras som SLUTAR utan mellanslag (t.ex. "Yoga at") triggar då
+    // aldrig en ny sökning — modalen kan stå kvar med gamla/orelaterade
+    // träffar, och poängsystemet kan ändå "stabiliseras" kring en av dem och
+    // acceptera en helt fel träff (bekräftat 2026-09-25: "Yoga at Vrak..."
+    // sökte aldrig fram rätt event, "Outdoor Yoga..." valdes istället).
+    // Lägg därför alltid till ett avslutande mellanslag på flerordsfraser,
+    // och dispatcha tangenttryckningen FÖR just det mellanslaget.
+    if (queryWords.length > 1) searchQuery += ' ';
+    vlog('Sökfält hittat, fyller i: "' + searchQuery.trim() + '" (av hela titeln "' + cleanTerm + '")');
 
     searchInput.focus();
     setNativeInputValue(searchInput, searchQuery);
@@ -733,7 +743,7 @@
       const currentModal = getChooserModal();
       if (!currentModal) {
         vlog('Modal stängd för tidigt', 'warn');
-        return false;
+        return { ok: false, uncertain: false };
       }
 
       // Wagtails FAKTISKA väljar-länkar (bekräftat via DOM-inspektion:
@@ -770,7 +780,7 @@
         await wait(800);
         if (await verifyFieldFilled(blockIdx, rowIndex)) {
           await closeChooserModal();
-          return true;
+          return { ok: true, uncertain: false };
         }
         continue;
       }
@@ -825,7 +835,7 @@
 
         if (await verifyFieldFilled(blockIdx, rowIndex)) {
           await closeChooserModal();
-          return true;
+          return { ok: true, uncertain: false };
         }
         continue;
       }
@@ -838,7 +848,7 @@
 
         if (await verifyFieldFilled(blockIdx, rowIndex)) {
           await closeChooserModal();
-          return true;
+          return { ok: true, uncertain: false };
         }
         continue;
       }
@@ -860,13 +870,18 @@
       // klart leder över tvåan. Lita därför på den relativa rangordningen
       // när resultaten stabiliserats, istället för ett absolut poängkrav.
       if (stableCount >= 2 && (!secondBest || bestHit.score > secondBest.score)) {
-        vlog(`Resultaten har stabiliserats, accepterar bästa träffen "${bestHit.text}" (poäng: ${bestHit.score})`, 'ok');
+        // Denna gren accepterar per definition en träff som ALDRIG blev
+        // "Utmärkt" (≥900) eller "Bra" (>700 med tydlig marginal) ovan —
+        // dvs. den svagast underbyggda accepteringen. Flaggas därför alltid
+        // som osäker uppåt i kedjan, så KLART!-sammanfattningen kan lista
+        // vilka rader som bör dubbelkollas manuellt.
+        vlog(`OSÄKER TRÄFF (poäng ${bestHit.score}, ej "utmärkt"/"bra") — accepterar ändå eftersom resultaten stabiliserats: "${bestHit.text}". Dubbelkolla manuellt!`, 'warn');
         bestHit.element.click();
         await wait(800);
 
         if (await verifyFieldFilled(blockIdx, rowIndex)) {
           await closeChooserModal();
-          return true;
+          return { ok: true, uncertain: true };
         }
         continue;
       }
@@ -888,7 +903,7 @@
     }
 
     await closeChooserModal();
-    return false;
+    return { ok: false, uncertain: false };
   }
 
   async function verifyFieldFilled(blockIdx, rowIndex) {
@@ -950,6 +965,7 @@
     }
     isFilling = true;
     successfulFills = 0;
+    const uncertainRows = []; // rader ifyllda via den svagast underbyggda matchningen — bör dubbelkollas manuellt
 
     try {
       const blockIdx = epFindEventListBlockIndex();
@@ -1070,10 +1086,15 @@
           continue;
         }
 
-        const ok = await epSelectInChooserModal(ev.displayText, blockIdx, row.index);
-        if (ok) {
+        const result = await epSelectInChooserModal(ev.displayText, blockIdx, row.index);
+        if (result.ok) {
           successfulFills++;
-          vlog('Rad ' + (i+1) + ' ifylld', 'ok');
+          if (result.uncertain) {
+            uncertainRows.push(i + 1);
+            vlog('Rad ' + (i+1) + ' ifylld MEN med en osäker träff — dubbelkolla manuellt!', 'warn');
+          } else {
+            vlog('Rad ' + (i+1) + ' ifylld', 'ok');
+          }
         } else {
           vlog('Kunde inte fylla rad ' + (i+1), 'err');
         }
@@ -1081,12 +1102,15 @@
       }
 
       // UPPPDATERAT STATUSMEDDELANDE
+      const uncertainNote = uncertainRows.length
+        ? (' ⚠️ Osäkra rader (dubbelkolla): ' + uncertainRows.join(', '))
+        : '';
       if (successfulFills === validEvents.length) {
-        vlog('KLART! Alla ' + successfulFills + ' event ifyllda', 'ok');
-        setEpStatus('✅ ' + successfulFills + '/' + validEvents.length + ' event ifyllda');
+        vlog('KLART! Alla ' + successfulFills + ' event ifyllda' + (uncertainRows.length ? '. OSÄKRA rader: ' + uncertainRows.join(', ') : ''), uncertainRows.length ? 'warn' : 'ok');
+        setEpStatus((uncertainRows.length ? '⚠️ ' : '✅ ') + successfulFills + '/' + validEvents.length + ' event ifyllda' + uncertainNote);
       } else if (successfulFills > 0) {
-        vlog('Delvis framgång: ' + successfulFills + '/' + validEvents.length + ' event ifyllda', 'warn');
-        setEpStatus('⚠️ ' + successfulFills + '/' + validEvents.length + ' event ifyllda');
+        vlog('Delvis framgång: ' + successfulFills + '/' + validEvents.length + ' event ifyllda' + (uncertainRows.length ? '. OSÄKRA rader: ' + uncertainRows.join(', ') : ''), 'warn');
+        setEpStatus('⚠️ ' + successfulFills + '/' + validEvents.length + ' event ifyllda' + uncertainNote);
       } else {
         vlog('MISSLYCKADES: Inga event ifyllda', 'err');
         setEpStatus('❌ 0/' + validEvents.length + ' event ifyllda');
