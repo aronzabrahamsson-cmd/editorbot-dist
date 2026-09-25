@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      4.12
-// @description  v4.12: Alt-text-fälten i bilduppladdningsmodalen är för smala för att visa hela texten utan att skrolla i sidled — en tillfällig, läsbar förhandsvisningsruta (gul, med en ✕ stängknapp) visas nu direkt under alt-fälten (sv+en) automatiskt så fort pixtral genererat texten. v4.11: Ny bildautomation — när en bild väljs manuellt i bilduppladdningsmodalen (featured_image/og_image/twitter_image, samma modal som eventbot använder) genereras alt-text (sv/en) automatiskt via pixtral-synmodellen, och kredit/rättighetsdatum (dagens datum + 5 år) fylls i. Kräver sparad Mistral API-nyckel (⚙️-fliken). v4.10: Mörkblått versionsmärke bredvid rubriken i båda widgetarna, så man alltid ser exakt vilken version som körs. v4.9: Fix för web_search-svar som inte gick att tolka som JSON. v4.8: Detaljerad loggning av allt som skickas/tas emot från Mistral, plus fix för falskt "Klar!" när agenten inte gav någon användbar data. Äldre versioner: se git-historiken.
+// @version      4.13
+// @description  v4.13: Fixat att "Kopiera" i Synka utvalda event-listen kunde kopiera med event som precis raderats manuellt men inte sparats — Wagtails radera-knapp döljer bara raden i DOM:en tills sidan sparas, den underliggande datan fanns alltså kvar. Kopiera hoppar nu över dolda/raderade rader. Lade även till mycket mer detaljerad loggning per rad (index, id, ordning, text, om den inkluderades eller hoppades över och varför) för enklare felsökning. v4.12: Ny bildautomation — när en bild väljs manuellt i bilduppladdningsmodalen (featured_image/og_image/twitter_image, samma modal som eventbot använder) genereras alt-text (sv/en) automatiskt via pixtral-synmodellen, och kredit/rättighetsdatum (dagens datum + 5 år) fylls i. Kräver sparad Mistral API-nyckel (⚙️-fliken). v4.10: Mörkblått versionsmärke bredvid rubriken i båda widgetarna, så man alltid ser exakt vilken version som körs. v4.9: Fix för web_search-svar som inte gick att tolka som JSON. v4.8: Detaljerad loggning av allt som skickas/tas emot från Mistral, plus fix för falskt "Klar!" när agenten inte gav någon användbar data. Äldre versioner: se git-historiken.
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.com/cms/pages/*/edit/*
@@ -29,7 +29,7 @@
   // överst i filen. Används i loggens startrad och i versionsmärket i
   // widgetarnas rubrik (mörkblå text/bakgrund, oberoende av tema, så man
   // alltid kan se på skärmen exakt vilken version som körs).
-  const SCRIPT_VERSION = '4.12';
+  const SCRIPT_VERSION = '4.13';
   function versionBadgeHTML() {
     return '<span style="display:inline-block;margin-left:8px;padding:1px 7px;' +
       'border-radius:5px;background:#dbe7ff;color:#0b3d91;font-size:11px;' +
@@ -1127,14 +1127,35 @@
     }
 
     const subIdxs = epFindEventSubIndices(blockIdx);
+    vlog('Hittade ' + subIdxs.length + ' rad-index i blocket: ' + subIdxs.join(', '));
     const events = [];
 
     for (const si of subIdxs) {
       const valEl = $(pfx + 'events-' + si + '-value');
-      if (!valEl || !valEl.value) continue;
+      if (!valEl || !valEl.value) {
+        vlog('  Rad ' + si + ': inget värde, hoppar över.');
+        continue;
+      }
+
+      const wrapper = valEl.closest('li, [data-contentpath]') || valEl.parentElement;
+
+      // Wagtails StreamField-radering är "mjuk": klick på papperskorgen
+      // döljer raden direkt i DOM:en (för att kunna ångra), men tar INTE
+      // bort de underliggande fält-inputs förrän sidan faktiskt sparas.
+      // En rad som användaren precis raderat manuellt utan att spara sidan
+      // finns alltså kvar med sitt gamla värde om man bara letar efter
+      // inputs — måste explicit hoppa över dolda/raderade rader.
+      const style = wrapper ? getComputedStyle(wrapper) : null;
+      const isHidden = !wrapper || wrapper.offsetParent === null ||
+        style.visibility === 'hidden' || style.display === 'none' ||
+        wrapper.hasAttribute('hidden') || wrapper.getAttribute('aria-hidden') === 'true';
+      if (isHidden) {
+        vlog('  Rad ' + si + ' (id=' + valEl.value + '): dold i DOM:en — troligen raderad manuellt utan att sidan sparats. Hoppar över.' +
+          (wrapper ? ' [class="' + wrapper.className + '"]' : ' [ingen wrapper hittad]'), 'warn');
+        continue;
+      }
 
       const orderEl = document.querySelector('input[name="' + pfx + 'events-' + si + '-order"]');
-      const wrapper = valEl.closest('li, [data-contentpath]') || valEl.parentElement;
 
       let displayText = '';
       if (wrapper) {
@@ -1166,6 +1187,8 @@
 
       displayText = cleanDisplayText(displayText);
 
+      vlog('  Rad ' + si + ': id=' + valEl.value + ', order=' + (orderEl ? orderEl.value : '?') + ', text="' + displayText + '" — inkluderas.', 'ok');
+
       events.push({
         id: valEl.value,
         order: orderEl ? parseInt(orderEl.value, 10) : 0,
@@ -1174,7 +1197,7 @@
     }
 
     events.sort((a, b) => a.order - b.order);
-    vlog('Kopierade ' + events.length + ' event', 'ok');
+    vlog('Kopierade ' + events.length + ' event: ' + events.map(e => '"' + e.displayText + '"').join(', '), 'ok');
 
     GM_setValue(EP_STORAGE_KEY, JSON.stringify({
       sortByDate, excludeUrls, events, ts: Date.now()
