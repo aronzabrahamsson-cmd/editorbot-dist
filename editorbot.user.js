@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      4.16
-// @description  v4.16: Fixat att AI-skapandet inte visade rich_text/extra_info i den synliga editorn trots att agenten gav bra text — dessa är Draftail-fält vars dolda input innehåller Draft.js egen JSON, inte klartext, så den gamla simulateInput skrev bara till det dolda fältet utan att editorn någonsin uppdaterades. Använder nu samma updateDraftail() som v4.15:s översättningsknappar redan bevisat fungerar. v4.15: Två nya knappar, "🇸🇪 → Svenska" och "🇺🇸 → English (US)", översätter objektsidans egna textfält i-place (title, rich_text, extra_info_text, seo_title, search_description, og_title/description, twitter_title/description, list_title, external_link_text, booking_link_text, related_events_title) — rör aldrig adress/kontakt/URL:er/slug/datum/kryssrutor. Amerikansk engelska, inte brittisk. Samma blocklist-kontroll/omskrivnings-slinga som AI-skapandet skyddar mot att en "naturlig" översättning smyger in klichéer. Portade även Draftail-läsning/skrivning (readDraftailText/mountDraftail/updateDraftail) från eventbot för att korrekt uppdatera rich_text/extra_info_text-fälten (används av översättningen; AI-skapandets egen ifyllning av dessa fält väntar på en separat fix). v4.14: Ny bildautomation — när en bild väljs manuellt i bilduppladdningsmodalen (featured_image/og_image/twitter_image, samma modal som eventbot använder) genereras alt-text (sv/en) automatiskt via pixtral-synmodellen, och kredit/rättighetsdatum (dagens datum + 5 år) fylls i. Kräver sparad Mistral API-nyckel (⚙️-fliken). v4.10: Mörkblått versionsmärke bredvid rubriken i båda widgetarna, så man alltid ser exakt vilken version som körs. v4.9: Fix för web_search-svar som inte gick att tolka som JSON. v4.8: Detaljerad loggning av allt som skickas/tas emot från Mistral, plus fix för falskt "Klar!" när agenten inte gav någon användbar data. Äldre versioner: se git-historiken.
+// @version      4.17
+// @description  v4.17: Chooser-sökningen i Synka utvalda event-listen använder nu upp till 4 ord (var 2) av titeln — bekräftat upprepade gånger att 2 ord (t.ex. "Yoga at") kunde ge helt orelaterade träffar, troligen för att CMS:ets sökbackend stryker korta stoppord som "at" och söker på bara "Yoga". Fler ord ger nästan alltid med minst ett särskiljande ord till (här: "Vrak"). v4.16: Fixat att AI-skapandet inte visade rich_text/extra_info i den synliga editorn trots att agenten gav bra text — dessa är Draftail-fält vars dolda input innehåller Draft.js egen JSON, inte klartext, så den gamla simulateInput skrev bara till det dolda fältet utan att editorn någonsin uppdaterades. Använder nu samma updateDraftail() som v4.15:s översättningsknappar redan bevisat fungerar. v4.15: Två nya knappar, "🇸🇪 → Svenska" och "🇺🇸 → English (US)", översätter objektsidans egna textfält i-place (title, rich_text, extra_info_text, seo_title, search_description, og_title/description, twitter_title/description, list_title, external_link_text, booking_link_text, related_events_title) — rör aldrig adress/kontakt/URL:er/slug/datum/kryssrutor. Amerikansk engelska, inte brittisk. Samma blocklist-kontroll/omskrivnings-slinga som AI-skapandet skyddar mot att en "naturlig" översättning smyger in klichéer. Portade även Draftail-läsning/skrivning (readDraftailText/mountDraftail/updateDraftail) från eventbot för att korrekt uppdatera rich_text/extra_info_text-fälten (används av översättningen; AI-skapandets egen ifyllning av dessa fält väntar på en separat fix). v4.14: Ny bildautomation — när en bild väljs manuellt i bilduppladdningsmodalen (featured_image/og_image/twitter_image, samma modal som eventbot använder) genereras alt-text (sv/en) automatiskt via pixtral-synmodellen, och kredit/rättighetsdatum (dagens datum + 5 år) fylls i. Kräver sparad Mistral API-nyckel (⚙️-fliken). v4.10: Mörkblått versionsmärke bredvid rubriken i båda widgetarna, så man alltid ser exakt vilken version som körs. v4.9: Fix för web_search-svar som inte gick att tolka som JSON. v4.8: Detaljerad loggning av allt som skickas/tas emot från Mistral, plus fix för falskt "Klar!" när agenten inte gav någon användbar data. Äldre versioner: se git-historiken.
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.com/cms/pages/*/edit/*
@@ -30,7 +30,7 @@
   // överst i filen. Används i loggens startrad och i versionsmärket i
   // widgetarnas rubrik (mörkblå text/bakgrund, oberoende av tema, så man
   // alltid kan se på skärmen exakt vilken version som körs).
-  const SCRIPT_VERSION = '4.16';
+  const SCRIPT_VERSION = '4.17';
   function versionBadgeHTML() {
     return '<span style="display:inline-block;margin-left:8px;padding:1px 7px;' +
       'border-radius:5px;background:#dbe7ff;color:#0b3d91;font-size:11px;' +
@@ -874,10 +874,18 @@
     // Rensa söktermen. cleanTerm (hela titeln) används för att POÄNGSÄTTA
     // träffarna, men CMS:ets sökfunktion klarar inte att söka på hela långa
     // titlar (för många ord ger inga träffar) — så det vi faktiskt SKRIVER i
-    // sökfältet är bara de första 1–2 orden.
+    // sökfältet är bara de första orden, upp till 4 (om titeln har så många).
+    //
+    // BUGGFIX 2026-09-28: 2 ord räckte inte — bekräftat upprepade gånger att
+    // "Yoga at Vrak Museum of Wrecks" med sökfrasen "Yoga at" gav helt
+    // orelaterade träffar (bara "Yoga" gemensamt). Troligen stryker CMS:ets
+    // sökbackend korta stoppord som "at" helt, så "Yoga at" blir i praktiken
+    // samma sökning som bara "Yoga". Med upp till 4 ord kommer sökfrasen
+    // nästan alltid innehålla minst ett särskiljande ord till (här: "Vrak"),
+    // vilket filtrerar bort de orelaterade träffarna.
     const cleanTerm = cleanDisplayText(searchTerm);
     const queryWords = cleanTerm.split(/\s+/).filter(Boolean);
-    let searchQuery = queryWords.length <= 1 ? queryWords.join(' ') : queryWords.slice(0, 2).join(' ');
+    let searchQuery = queryWords.slice(0, 4).join(' ');
     // CMS:ets sökfält verkar bara trigga sin AJAX-sökning på en mellanslags-
     // tangenttryckning efter ett avslutat ord, inte på valfri inmatning. En
     // flerordsfras som SLUTAR utan mellanslag (t.ex. "Yoga at") triggar då
