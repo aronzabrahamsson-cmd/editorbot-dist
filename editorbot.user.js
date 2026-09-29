@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      4.17
-// @description  v4.17: Chooser-sökningen i Synka utvalda event-listen använder nu upp till 4 ord (var 2) av titeln — bekräftat upprepade gånger att 2 ord (t.ex. "Yoga at") kunde ge helt orelaterade träffar, troligen för att CMS:ets sökbackend stryker korta stoppord som "at" och söker på bara "Yoga". Fler ord ger nästan alltid med minst ett särskiljande ord till (här: "Vrak"). v4.16: Fixat att AI-skapandet inte visade rich_text/extra_info i den synliga editorn trots att agenten gav bra text — dessa är Draftail-fält vars dolda input innehåller Draft.js egen JSON, inte klartext, så den gamla simulateInput skrev bara till det dolda fältet utan att editorn någonsin uppdaterades. Använder nu samma updateDraftail() som v4.15:s översättningsknappar redan bevisat fungerar. v4.15: Två nya knappar, "🇸🇪 → Svenska" och "🇺🇸 → English (US)", översätter objektsidans egna textfält i-place (title, rich_text, extra_info_text, seo_title, search_description, og_title/description, twitter_title/description, list_title, external_link_text, booking_link_text, related_events_title) — rör aldrig adress/kontakt/URL:er/slug/datum/kryssrutor. Amerikansk engelska, inte brittisk. Samma blocklist-kontroll/omskrivnings-slinga som AI-skapandet skyddar mot att en "naturlig" översättning smyger in klichéer. Portade även Draftail-läsning/skrivning (readDraftailText/mountDraftail/updateDraftail) från eventbot för att korrekt uppdatera rich_text/extra_info_text-fälten (används av översättningen; AI-skapandets egen ifyllning av dessa fält väntar på en separat fix). v4.14: Ny bildautomation — när en bild väljs manuellt i bilduppladdningsmodalen (featured_image/og_image/twitter_image, samma modal som eventbot använder) genereras alt-text (sv/en) automatiskt via pixtral-synmodellen, och kredit/rättighetsdatum (dagens datum + 5 år) fylls i. Kräver sparad Mistral API-nyckel (⚙️-fliken). v4.10: Mörkblått versionsmärke bredvid rubriken i båda widgetarna, så man alltid ser exakt vilken version som körs. v4.9: Fix för web_search-svar som inte gick att tolka som JSON. v4.8: Detaljerad loggning av allt som skickas/tas emot från Mistral, plus fix för falskt "Klar!" när agenten inte gav någon användbar data. Äldre versioner: se git-historiken.
+// @version      4.18
+// @description  v4.18: Tog bort restaurang-kryssrutan och all booking_link/booking_link_text-ifyllning (inklusive från översättningsknapparna) eftersom bokningslänken inte längre används. is_restaurant skickas ändå som "false" till agenten så dess egen systemprompt (som fortfarande förväntar sig fältet) fungerar oförändrat. v4.17: Chooser-sökningen i Synka utvalda event-listen använder nu upp till 4 ord (var 2) av titeln — bekräftat upprepade gånger att 2 ord (t.ex. "Yoga at") kunde ge helt orelaterade träffar, troligen för att CMS:ets sökbackend stryker korta stoppord som "at" och söker på bara "Yoga". Fler ord ger nästan alltid med minst ett särskiljande ord till (här: "Vrak"). v4.16: Fixat att AI-skapandet inte visade rich_text/extra_info i den synliga editorn trots att agenten gav bra text — dessa är Draftail-fält vars dolda input innehåller Draft.js egen JSON, inte klartext, så den gamla simulateInput skrev bara till det dolda fältet utan att editorn någonsin uppdaterades. Använder nu samma updateDraftail() som v4.15:s översättningsknappar redan bevisat fungerar. v4.15: Två nya knappar, "🇸🇪 → Svenska" och "🇺🇸 → English (US)", översätter objektsidans egna textfält i-place (title, rich_text, extra_info_text, seo_title, search_description, og_title/description, twitter_title/description, list_title, external_link_text, booking_link_text, related_events_title) — rör aldrig adress/kontakt/URL:er/slug/datum/kryssrutor. Amerikansk engelska, inte brittisk. Samma blocklist-kontroll/omskrivnings-slinga som AI-skapandet skyddar mot att en "naturlig" översättning smyger in klichéer. Portade även Draftail-läsning/skrivning (readDraftailText/mountDraftail/updateDraftail) från eventbot för att korrekt uppdatera rich_text/extra_info_text-fälten (används av översättningen; AI-skapandets egen ifyllning av dessa fält väntar på en separat fix). v4.14: Ny bildautomation — när en bild väljs manuellt i bilduppladdningsmodalen (featured_image/og_image/twitter_image, samma modal som eventbot använder) genereras alt-text (sv/en) automatiskt via pixtral-synmodellen, och kredit/rättighetsdatum (dagens datum + 5 år) fylls i. Kräver sparad Mistral API-nyckel (⚙️-fliken). v4.10: Mörkblått versionsmärke bredvid rubriken i båda widgetarna, så man alltid ser exakt vilken version som körs. v4.9: Fix för web_search-svar som inte gick att tolka som JSON. v4.8: Detaljerad loggning av allt som skickas/tas emot från Mistral, plus fix för falskt "Klar!" när agenten inte gav någon användbar data. Äldre versioner: se git-historiken.
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.com/cms/pages/*/edit/*
@@ -30,7 +30,7 @@
   // överst i filen. Används i loggens startrad och i versionsmärket i
   // widgetarnas rubrik (mörkblå text/bakgrund, oberoende av tema, så man
   // alltid kan se på skärmen exakt vilken version som körs).
-  const SCRIPT_VERSION = '4.17';
+  const SCRIPT_VERSION = '4.18';
   function versionBadgeHTML() {
     return '<span style="display:inline-block;margin-left:8px;padding:1px 7px;' +
       'border-radius:5px;background:#dbe7ff;color:#0b3d91;font-size:11px;' +
@@ -281,7 +281,6 @@
     ['twitter_description', 'id_twitter_description', 'plain'],
     ['list_title', 'id_list_title', 'plain'],
     ['external_link_text', 'id_external_link_text', 'plain'],
-    ['booking_link_text', 'id_booking_link_text', 'plain'],
     ['related_events_title', 'id_related_events_title', 'plain']
   ];
 
@@ -2029,7 +2028,6 @@
       <div id="sb-scroll">
         <div class="sb-tab-panel active" data-tab-panel="main">
           <div class="sb-row"><label>Sida-URL</label><input type="text" id="sb-url" class="sb-key" placeholder="https://…" autocomplete="off" spellcheck="false"></div>
-          <label class="sb-check"><input type="checkbox" id="sb-restaurant"> 🍽️ Restaurang</label>
           <div class="sb-langrow">
             <button type="button" id="sb-btn-sv">🇸🇪 Svenska</button>
             <button type="button" id="sb-btn-en">🇺🇸 English</button>
@@ -2123,7 +2121,6 @@
       // för, eftersom det är 'change'-eventet som sparar till lagringen.
       const apiKey = ($('sb-mkey').value || '').trim();
       const agentId = ($('sb-magent').value || '').trim();
-      const isRestaurant = $('sb-restaurant').checked;
       GM_setValue('sidbot_mkey', apiKey);
       GM_setValue('sidbot_magent', agentId);
 
@@ -2135,7 +2132,11 @@
       $('sb-btn-en').disabled = true;
       setStatus('Skickar till Mistral...', 'work');
 
-      const agentInput = 'URL: ' + url + '\nSPRÅK: ' + lang + '\nis_restaurant: ' + isRestaurant;
+      // Restaurang-kryssrutan är borttagen (booking_link används inte
+      // längre) — is_restaurant skickas ändå som "false" eftersom agentens
+      // egen systemprompt fortfarande förväntar sig fältet för att avgöra
+      // om booking_link/booking_link_text ska fyllas i (aldrig, nu).
+      const agentInput = 'URL: ' + url + '\nSPRÅK: ' + lang + '\nis_restaurant: false';
 
       try {
         let data = await callMistralAgentForJSON(apiKey, agentId, agentInput, 'original');
@@ -2215,9 +2216,6 @@
           ['show_mega_menu','id_show_mega_menu']
         ];
         for (const [key, id] of CHECKBOX_FIELDS) if (Object.prototype.hasOwnProperty.call(data, key)) simulateInput($(id), data[key]);
-
-        if (isRestaurant && data.booking_link) simulateInput($('id_booking_link'), data.booking_link);
-        if (isRestaurant && data.booking_link_text) simulateInput($('id_booking_link_text'), data.booking_link_text);
 
         // rich_text/extra_info_text är Draftail-fält (React/Draft.js), inte
         // vanliga textfält — deras dolda <input> innehåller Draft.js egen
