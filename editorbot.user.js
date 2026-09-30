@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      4.20
-// @description  v4.20: Steg 2 av "WHAT'S ON"-fliken: "Hämta event"-knappen hämtar nu hela kalendern (singulareventdates, alla sidor) och filtrerar på vald period (1 månad på .se, 3 månader på .com), grupperar dem i tre sektioner (Konserter & festivaler / Scen & film / Museer & utställningar, plus "Övrigt" för okategoriserade) baserat på API:ets category/categories/subcategory-fält (bästa gissning, ej ännu verifierad mot en riktig körning — okända kategorier hamnar synligt i "Övrigt" och loggas i stället för att tystas bort), och visar en kryssrutelista per sektion (max 20/sektion, men Big Event/Opening Soon-taggade event räknas alltid med utöver taket). Taggning sker genom att läsa av Biggest Events- och Opening Soon-guidernas CMS-sidor (1298/2353 respektive 4197/4557, fungerar oavsett domän) och leta efter länkade eventslugs i den hämtade HTML:en — även detta en bästa gissning som ska utvärderas mot en riktig logg. Taggade event är förikryssade, övriga väljs manuellt. v4.19: Steg 1 av samma flik — flik, månadsväljare och inställningsfält (scaffolding). v4.18: Tog bort restaurang-kryssrutan och all booking_link-ifyllning. v4.17: Chooser-sökningen i Synka utvalda event-listen använder nu upp till 4 ord (var 2) av titeln. v4.16: Fixat att AI-skapandet inte visade rich_text/extra_info i den synliga editorn (Draftail-fält skrivs nu via updateDraftail()). Äldre versioner: se git-historiken.
+// @version      4.21
+// @description  v4.21: Steg 3 av "WHAT'S ON"-fliken: "Hämta event" visar nu även en förslagslista på relevanta guider (card_image_link) för samma period, baserat på en månad→guide-tabell (EN/SV) — förikryssade, samma språk som sidan (en guide utan svensk version föreslås aldrig på .se). Endast förslag/titlar i det här steget; att slå upp varje vald guide mot en riktig Wagtail-sida (via samma chooser-sök-och-matcha-logik som eventlistan redan använder) sker i skrivsteget. v4.20: Steg 2 — "Hämta event" hämtar hela kalendern, filtrerar på period och grupperar i tre sektioner (Konserter & festivaler / Scen & film / Museer & utställningar, plus "Övrigt" för okategoriserade) med Big Event/Opening Soon-taggning (bästa gissningar, ej verifierade mot en riktig körning). v4.19: Steg 1 — flik, månadsväljare och inställningsfält. v4.18: Tog bort restaurang-kryssrutan och all booking_link-ifyllning. v4.17: Chooser-sökningen i Synka utvalda event-listen använder nu upp till 4 ord (var 2) av titeln. v4.16: Fixat att AI-skapandet inte visade rich_text/extra_info i den synliga editorn (Draftail-fält skrivs nu via updateDraftail()). Äldre versioner: se git-historiken.
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.com/cms/pages/*/edit/*
@@ -30,7 +30,7 @@
   // överst i filen. Används i loggens startrad och i versionsmärket i
   // widgetarnas rubrik (mörkblå text/bakgrund, oberoende av tema, så man
   // alltid kan se på skärmen exakt vilken version som körs).
-  const SCRIPT_VERSION = '4.20';
+  const SCRIPT_VERSION = '4.21';
   function versionBadgeHTML() {
     return '<span style="display:inline-block;margin-left:8px;padding:1px 7px;' +
       'border-radius:5px;background:#dbe7ff;color:#0b3d91;font-size:11px;' +
@@ -353,10 +353,11 @@
 
   // ===== WHAT'S ON =====
   // Steg 1: flik, inställningsfält och månadsväljare.
-  // Steg 2: hämtning/filtrering/kategorisering av kalenderevent + checklista
-  // (se whatsOnState och funktionerna längre ner i den här sektionen).
-  // Kvar: guide-checklistan (card_image_link) samt att faktiskt skriva den
-  // färdiga texten/bilderna till sidans fält.
+  // Steg 2: hämtning/filtrering/kategorisering av kalenderevent + checklista.
+  // Steg 3: guide-förslag (card_image_link) för samma period, se
+  // "GUIDE-FÖRSLAG"-sektionen längre ner.
+  // Kvar: att faktiskt skriva den färdiga texten/bilderna/guide-korten till
+  // sidans fält (kräver att guide-titlarna slås upp mot riktiga Wagtail-sidor).
   const MONTH_NAMES_SV = ['januari','februari','mars','april','maj','juni','juli','augusti','september','oktober','november','december'];
   const MONTH_NAMES_EN = ['January','February','March','April','May','June','July','August','September','October','November','December'];
   const DEFAULT_CALENDAR_API_COM = 'https://www.visitstockholm.com/api/v1/singulareventdates/';
@@ -659,6 +660,7 @@
     busy = true;
     $('sb-whatson-fetch').disabled = true;
     $('sb-whatson-checklist').innerHTML = '';
+    $('sb-whatson-guides').innerHTML = '';
 
     try {
       const range = getWhatsOnPeriodRange(monthValue);
@@ -673,14 +675,16 @@
       ]);
 
       const sections = groupEventsIntoSections(events, { big: bigSlugs, opening: openingSlugs });
-      whatsOnState = { monthValue, range, sections };
+      const guides = getSuggestedGuidesForRange(range);
+      whatsOnState = { monthValue, range, sections, guides };
       renderWhatsOnChecklist(sections);
+      renderWhatsOnGuideChecklist(guides);
 
       const total = SECTION_ORDER.reduce((n, k) => n + sections[k].length, 0);
       if (total === 0) {
         setWhatsOnStatus('Inga event hittades för vald period.', 'err');
       } else {
-        setWhatsOnStatus('✅ ' + total + ' event hittade — kryssa i/ur och fortsätt.', 'ok');
+        setWhatsOnStatus('✅ ' + total + ' event hittade, ' + guides.length + ' guide(r) föreslagna — kryssa i/ur och fortsätt.', 'ok');
       }
     } catch (e) {
       vlog('WHAT\'S ON: fel — ' + e.message, 'err');
@@ -689,6 +693,139 @@
       busy = false;
       $('sb-whatson-fetch').disabled = false;
     }
+  }
+
+  // ===== GUIDE-FÖRSLAG (card_image_link) =====
+  // Månad → rekommenderade guider, enligt Arons tabell. sv: null betyder att
+  // ingen svensk version av just den guiden finns ("ENDAST ENGELSKA" i
+  // tabellen) — den guiden föreslås då aldrig på .se, bara på .com (EN).
+  //
+  // Denna sektion föreslår BARA titlar (kryssruteista, förikryssad — kuraterad
+  // lista, kryssa ur det som inte passar). Att slå upp varje vald titel mot en
+  // verklig Wagtail-sida görs INTE här, utan i skrivsteget (steg 4) — då vet
+  // vi exakt hur många card_image_link-block som ska läggas till och kan
+  // öppna sidväljarens chooser-modal för varje guide i tur och ordning, med
+  // samma sök-och-poängsätt-logik som epSelectInChooserModal/
+  // calculateMatchScore redan använder för eventlänkar.
+  const MONTH_GUIDES = {
+    1: [
+      { en: 'Winter Activities in Stockholm', sv: 'Vinteraktiviteter i Stockholm' },
+      { en: 'Ice Skating in Stockholm', sv: 'Åk skridskor i Stockholm' },
+      { en: 'Fun Sled Slopes in Stockholm', sv: 'Åk pulka i Stockholm' },
+      { en: 'Brave the Cold: A Winter Swim in Stockholm', sv: 'Vinterbada i Stockholm' },
+      { en: 'Find the Light in Winter Stockholm', sv: 'Hitta till ljuset i vintermörkret' }
+    ],
+    2: [
+      { en: 'Have a Fun Winter Break in Stockholm', sv: 'Ha ett härligt sportlov i Stockholm' },
+      { en: 'Fat Tuesday – the day of the Semla 2026', sv: 'Njut av Stockholms bästa semlor 2027' },
+      { en: 'Roy Fares: My top 5 places to eat semla', sv: 'Roy Fares: Mina 5 bästa tips på semlor i Stockholm' },
+      { en: 'Guide: Stockholm Design Week', sv: null },
+      { en: 'Go Skiing in Stockholm!', sv: 'Skidåkning i Stockholm' }
+    ],
+    3: [
+      { en: 'How to celebrate Ramadan in Stockholm as a visitor', sv: null },
+      { en: 'Springtime in Stockholm', sv: null },
+      { en: 'Springtime for Liljevalchs', sv: 'Nu våras det för Liljevalchs' }
+    ],
+    4: [
+      { en: 'Easter in Stockholm', sv: 'Påsk i Stockholm 2026' },
+      { en: 'A fika or lunch under the cherry blossoms', sv: 'Fika och luncha under körsbärsblommorna' },
+      { en: 'Stockholm Culture Night 2026', sv: 'Kulturnatt Stockholm 2026' },
+      { en: 'Walpurgis Night in Stockholm', sv: 'Fira valborg i Stockholm 2026' }
+    ],
+    5: [
+      { en: 'Get the most out of Stockholm Marathon', sv: 'Maxa Stockholm Marathon' },
+      { en: '4 great spots for an outdoor breakfast', sv: '4 fantastiska platser för en utomhusfrukost' },
+      { en: 'An outdoor lunch or fika in Stockholm', sv: 'Fika och luncha utomhus i Stockholm' },
+      { en: 'Sunny open-air restaurants', sv: 'Stockholms bästa uteserveringar' },
+      { en: 'Green garden cafés in Stockholm', sv: 'Stockholms grönaste trädgårdskaféer' }
+    ],
+    6: [
+      { en: 'Celebrate Sweden\'s National Day in Stockholm', sv: 'Här kan du fira Sveriges nationaldag i Stockholm 2026' },
+      { en: 'Midsummer in Stockholm 2026', sv: 'Midsommar i Stockholm 2026' },
+      { en: 'Best places to watch the FIFA World Cup in Stockholm', sv: 'Här ser du fotbolls-VM 2026 i Stockholm' },
+      { en: 'Summer clubs', sv: 'Stockholms sommarklubbar' }
+    ],
+    7: [
+      { en: 'Festival Summer in Stockholm', sv: 'Festivalsommar i Stockholm' },
+      { en: 'Beaches in Stockholm: Swimming in the city', sv: 'Bada i Stockholm' },
+      { en: 'Discover the Stockholm Archipelago', sv: 'Upptäck Stockholms skärgård' },
+      { en: 'Have an Active Vacation', sv: 'Aktiv semester i Stockholm' },
+      { en: 'The best ice cream in Stockholm 2026', sv: 'Hitta Stockholms bästa glass 2026' }
+    ],
+    8: [
+      { en: 'It\'s time for crayfish!', sv: 'Dags för kräftor!' },
+      { en: 'Celebrate Stockholm Pride 2026', sv: 'Här kan du fira Stockholm Pride 2026' },
+      { en: 'Experience Finnkampen', sv: 'Fira Finnkampen 100 år' }
+    ],
+    9: [
+      { en: 'Everything Around Lidingöloppet', sv: 'Allt runt Lidingöloppet' },
+      { en: 'Treasures in the underbrush – foraging with Niki Sjölund', sv: null },
+      { en: 'Hiking Trails Near Stockholm', sv: 'Vandring i och kring Stockholm' }
+    ],
+    10: [
+      { en: 'Halloween and Fall break in Stockholm', sv: 'Höstlov i Stockholm 2026' },
+      { en: 'The Haunting of Stockholm – Find the Spookiest Places in Town', sv: 'Fira Halloween i kusliga Stockholm' },
+      { en: 'Stockholm on a Rainy Day', sv: 'En regnig dag i Stockholm' }
+    ],
+    11: [
+      { en: 'At the Movies: Cinemas and Film Festivals Stockholm', sv: 'Mysiga biografer och filmfestivaler i Stockholm' },
+      { en: 'Night at the Museum – Evening-open Attractions in Stockholm', sv: 'Kvällsöppna museer i Stockholm' },
+      { en: 'Sauna in Stockholm', sv: 'Bada bastu i Stockholm' },
+      { en: 'Enjoy a Spa Weekend in Stockholm City', sv: 'Njut av spa i Stockholm' }
+    ],
+    12: [
+      { en: 'Lucia in Stockholm 2026', sv: 'Lucia i Stockholm 2026' },
+      { en: 'Have a bite of Nobel cuisine', sv: 'En smak av Nobelmiddagen' },
+      { en: 'Christmas Concerts and Events in Stockholm 2026', sv: 'Julkonserter och julshower i Stockholm 2026' },
+      { en: 'Have a Great Christmas Holiday in Stockholm', sv: 'Jullov i Stockholm 2026 för hela familjen' },
+      { en: 'New Year\'s Eve in Stockholm 2026', sv: 'Nyår i Stockholm 2026' }
+    ]
+  };
+
+  // 1-indexerade månadsnummer som perioden [range.start, range.end) täcker.
+  function getMonthsInRange(range) {
+    const months = [];
+    let d = new Date(range.start.getFullYear(), range.start.getMonth(), 1);
+    while (d < range.end) {
+      months.push(d.getMonth() + 1);
+      d = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+    }
+    return months;
+  }
+
+  function getSuggestedGuidesForRange(range) {
+    const sv = isSwedishDomain();
+    const seen = new Set();
+    const guides = [];
+    for (const month of getMonthsInRange(range)) {
+      for (const g of (MONTH_GUIDES[month] || [])) {
+        const title = sv ? g.sv : g.en;
+        if (!title || seen.has(title)) continue;
+        seen.add(title);
+        guides.push({ title, month });
+      }
+    }
+    return guides;
+  }
+
+  // Förikryssade (kuraterad lista för perioden) — användaren kryssar ur det
+  // som inte passar. data-title bär den EXAKTA guide-titeln, så steg 4 kan
+  // använda den oförändrad som söksträng i sidväljarens chooser-modal.
+  function renderWhatsOnGuideChecklist(guides) {
+    const container = $('sb-whatson-guides');
+    if (!container) return;
+    if (!guides.length) { container.innerHTML = ''; return; }
+    let html = '<div class="sb-whatson-section-title">Föreslagna guider (card_image_link) (' + guides.length + ')</div>';
+    html += '<div class="sb-whatson-list">';
+    for (const g of guides) {
+      html += '<label class="sb-check sb-whatson-item">' +
+        '<input type="checkbox" class="sb-whatson-guide-cb" data-title="' + esc(g.title) + '" checked>' +
+        '<span>' + esc(g.title) + '</span>' +
+        '</label>';
+    }
+    html += '</div>';
+    container.innerHTML = html;
   }
 
   // ===== BILDAUTOMATION (alt-text via pixtral) =====
@@ -2413,6 +2550,7 @@
           </div>
           <div class="sb-status" id="sb-whatson-status"></div>
           <div id="sb-whatson-checklist"></div>
+          <div id="sb-whatson-guides"></div>
         </div>
         <div class="sb-tab-panel" data-tab-panel="settings">
           <label class="sb-toggle-row">
