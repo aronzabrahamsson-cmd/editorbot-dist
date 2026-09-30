@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      4.22
-// @description  v4.22: Steg 4 av "WHAT'S ON"-fliken (FÖRSTA FÖRSÖKET, kräver verifiering mot en riktig körning): ny knapp "Skriv till sidan" skriver de ikryssade eventen till sidans BEFINTLIGA fact_box-block (matchade mot rätt sektion via deras nuvarande rubrik, eftersom blockens ordning skiljer sig mellan .se/.com) och den ikryssade guidens sidlänk till det FÖRSTA card_image_link-blocket. Eventtext skrivs via en simulerad inklistring (paste) i de levande Draftail-editorerna, så Draftails egen HTML-konvertering bygger rubrik/punktlista/fetstil/kursiv/länkar korrekt (samma bugg som v4.16 annars). Bilden till varje sektions översta event infogas separat via editorns egen "lägg till block → bild"-knapp och en riktig bildväljar-sökning i BEFINTLIGA bildbanken (laddar aldrig upp en ny bild). Klickar INTE på "Spara utkast" automatiskt — innehållet ska granskas visuellt innan det sparas. v4.21: Steg 3 — förslagslista på relevanta guider (card_image_link) för perioden. v4.20: Steg 2 — hämtning/filtrering/kategorisering av kalenderevent + checklista. v4.19: Steg 1 — flik, månadsväljare och inställningsfält. v4.18: Tog bort restaurang-kryssrutan och all booking_link-ifyllning. v4.17: Chooser-sökningen i Synka utvalda event-listen använder nu upp till 4 ord. Äldre versioner: se git-historiken.
+// @version      4.23
+// @description  v4.23: Fixat "Skriv till sidan" som inte gjorde något — orsaken var att kategori→sektion-mappningen (WHAT'S ON) bara kände till engelska slugs, medan API:et på .se-domänen faktiskt returnerar lokaliserade SVENSKA kategorietiketter ("musik", "scen & film", "utställningar"), bekräftat via en riktig körning där ALLA 228 event hamnade i "Övrigt" istället för Konserter/Scen & film/Museer. Lade till de svenska etiketterna i CATEGORY_TO_SECTION. Fixade även en "[object Object]"-bugg när ett kategorifält är ett objekt ({id,name}) istället för en sträng. v4.22: Steg 4 (första försöket) — "Skriv till sidan"-knappen skriver ikryssade event/guide till sidans befintliga fact_box/card_image_link-block via simulerad inklistring i Draftail, plus bildinfogning från befintlig bildbank. v4.21: Steg 3 — guide-förslag. v4.20: Steg 2 — hämtning/filtrering/kategorisering + checklista. v4.19: Steg 1 — flik, månadsväljare, inställningsfält. Äldre versioner: se git-historiken.
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.com/cms/pages/*/edit/*
@@ -30,7 +30,7 @@
   // överst i filen. Används i loggens startrad och i versionsmärket i
   // widgetarnas rubrik (mörkblå text/bakgrund, oberoende av tema, så man
   // alltid kan se på skärmen exakt vilken version som körs).
-  const SCRIPT_VERSION = '4.22';
+  const SCRIPT_VERSION = '4.23';
   function versionBadgeHTML() {
     return '<span style="display:inline-block;margin-left:8px;padding:1px 7px;' +
       'border-radius:5px;background:#dbe7ff;color:#0b3d91;font-size:11px;' +
@@ -488,15 +488,21 @@
     return inRange;
   }
 
-  // Kategori → sektion. BÄSTA GISSNING baserad på API:ets category/
-  // categories/subcategory-fält — inte ännu verifierad mot en riktig körning.
-  // Kategorier som inte finns här hamnar i "other" (visas som "Övrigt" i
-  // checklistan, aldrig tyst bortsorterade) och loggas så mappningen kan
-  // rättas när ett riktigt svar från API:et har synats.
+  // Kategori → sektion. RÄTTAD 2026-09 mot en riktig körning på .se: API:et
+  // returnerar lokaliserade SVENSKA kategorietiketter på den svenska domänen
+  // ("musik", "scen & film", "utställningar" osv.), inte engelska slugs —
+  // ursprungsgissningen (bara engelska nycklar) missade därför ALLA riktiga
+  // träffar och allt hamnade i "Övrigt". Engelska nycklar behålls för .com.
+  // Övriga kategorier (mässor, nätverkande, sport & hälsa, familj, m.fl.)
+  // hör genuint inte hemma i någon av de 3 sektionerna och ska fortsätta
+  // hamna i "Övrigt" — det är inte ett fel, bara gränsen för sidans struktur.
   const CATEGORY_TO_SECTION = {
-    'music': 'concerts', 'concerts': 'concerts', 'festivals': 'concerts',
-    'stage-film': 'theatre', 'stage': 'theatre', 'theatre': 'theatre', 'film': 'theatre',
-    'exhibitions': 'museums', 'exhibition': 'museums', 'museums': 'museums'
+    'music': 'concerts', 'musik': 'concerts', 'concerts': 'concerts', 'konserter': 'concerts',
+    'festivals': 'concerts', 'festivaler': 'concerts',
+    'stage-film': 'theatre', 'scen & film': 'theatre', 'stage': 'theatre', 'theatre': 'theatre',
+    'teater': 'theatre', 'film': 'theatre',
+    'exhibitions': 'museums', 'exhibition': 'museums', 'utställningar': 'museums',
+    'museums': 'museums', 'museer': 'museums'
   };
   const SECTION_ORDER = ['concerts', 'theatre', 'museums', 'other'];
   const SECTION_LABELS = {
@@ -512,12 +518,19 @@
   const BIG_EVENTS_PAGE_IDS = [1298, 2353];
   const OPENING_SOON_PAGE_IDS = [4197, 4557];
 
+  // En del kategorifält kan vara objekt (t.ex. {id, name}) istället för
+  // rena strängar — bekräftat via en "[object Object]"-post i en riktig
+  // körnings ej-mappade kategorier. Plockar ut ett rimligt namn-fält istället
+  // för att bara String()-tvinga objektet till oanvändbar text.
   function categoryOf(ev) {
-    const cats = [];
-    if (ev.category) cats.push(ev.category);
-    if (Array.isArray(ev.categories)) cats.push(...ev.categories);
-    if (ev.subcategory) cats.push(ev.subcategory);
-    return cats.filter(Boolean).map(c => String(c).toLowerCase());
+    const raw = [];
+    if (ev.category) raw.push(ev.category);
+    if (Array.isArray(ev.categories)) raw.push(...ev.categories);
+    if (ev.subcategory) raw.push(ev.subcategory);
+    return raw
+      .map(c => (c && typeof c === 'object') ? (c.name || c.title || c.label || c.slug || '') : c)
+      .filter(Boolean)
+      .map(c => String(c).toLowerCase().trim());
   }
 
   function sectionForEvent(ev) {
