@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      4.19
-// @description  v4.19: Steg 1 av "WHAT'S ON"-fliken (för de återkommande "What's on"/"Vad händer i Stockholm"-sidorna): ny flik med en månadsväljare (visar 12 månader framåt, med månaden 2 steg bort från idag överst), plus två nya inställningsfält (What's On agent-ID och en valfri override för kalender-API:ets bas-URL). Ren scaffolding — själva event-hämtningen och textgenereringen byggs i kommande steg. v4.18: Tog bort restaurang-kryssrutan och all booking_link/booking_link_text-ifyllning (inklusive från översättningsknapparna) eftersom bokningslänken inte längre används. is_restaurant skickas ändå som "false" till agenten så dess egen systemprompt (som fortfarande förväntar sig fältet) fungerar oförändrat. v4.17: Chooser-sökningen i Synka utvalda event-listen använder nu upp till 4 ord (var 2) av titeln — bekräftat upprepade gånger att 2 ord (t.ex. "Yoga at") kunde ge helt orelaterade träffar, troligen för att CMS:ets sökbackend stryker korta stoppord som "at" och söker på bara "Yoga". Fler ord ger nästan alltid med minst ett särskiljande ord till (här: "Vrak"). v4.16: Fixat att AI-skapandet inte visade rich_text/extra_info i den synliga editorn trots att agenten gav bra text — dessa är Draftail-fält vars dolda input innehåller Draft.js egen JSON, inte klartext, så den gamla simulateInput skrev bara till det dolda fältet utan att editorn någonsin uppdaterades. Använder nu samma updateDraftail() som v4.15:s översättningsknappar redan bevisat fungerar. v4.15: Två nya knappar, "🇸🇪 → Svenska" och "🇺🇸 → English (US)", översätter objektsidans egna textfält i-place (title, rich_text, extra_info_text, seo_title, search_description, og_title/description, twitter_title/description, list_title, external_link_text, booking_link_text, related_events_title) — rör aldrig adress/kontakt/URL:er/slug/datum/kryssrutor. Amerikansk engelska, inte brittisk. Samma blocklist-kontroll/omskrivnings-slinga som AI-skapandet skyddar mot att en "naturlig" översättning smyger in klichéer. Portade även Draftail-läsning/skrivning (readDraftailText/mountDraftail/updateDraftail) från eventbot för att korrekt uppdatera rich_text/extra_info_text-fälten (används av översättningen; AI-skapandets egen ifyllning av dessa fält väntar på en separat fix). v4.14: Ny bildautomation — när en bild väljs manuellt i bilduppladdningsmodalen (featured_image/og_image/twitter_image, samma modal som eventbot använder) genereras alt-text (sv/en) automatiskt via pixtral-synmodellen, och kredit/rättighetsdatum (dagens datum + 5 år) fylls i. Kräver sparad Mistral API-nyckel (⚙️-fliken). v4.10: Mörkblått versionsmärke bredvid rubriken i båda widgetarna, så man alltid ser exakt vilken version som körs. v4.9: Fix för web_search-svar som inte gick att tolka som JSON. v4.8: Detaljerad loggning av allt som skickas/tas emot från Mistral, plus fix för falskt "Klar!" när agenten inte gav någon användbar data. Äldre versioner: se git-historiken.
+// @version      4.20
+// @description  v4.20: Steg 2 av "WHAT'S ON"-fliken: "Hämta event"-knappen hämtar nu hela kalendern (singulareventdates, alla sidor) och filtrerar på vald period (1 månad på .se, 3 månader på .com), grupperar dem i tre sektioner (Konserter & festivaler / Scen & film / Museer & utställningar, plus "Övrigt" för okategoriserade) baserat på API:ets category/categories/subcategory-fält (bästa gissning, ej ännu verifierad mot en riktig körning — okända kategorier hamnar synligt i "Övrigt" och loggas i stället för att tystas bort), och visar en kryssrutelista per sektion (max 20/sektion, men Big Event/Opening Soon-taggade event räknas alltid med utöver taket). Taggning sker genom att läsa av Biggest Events- och Opening Soon-guidernas CMS-sidor (1298/2353 respektive 4197/4557, fungerar oavsett domän) och leta efter länkade eventslugs i den hämtade HTML:en — även detta en bästa gissning som ska utvärderas mot en riktig logg. Taggade event är förikryssade, övriga väljs manuellt. v4.19: Steg 1 av samma flik — flik, månadsväljare och inställningsfält (scaffolding). v4.18: Tog bort restaurang-kryssrutan och all booking_link-ifyllning. v4.17: Chooser-sökningen i Synka utvalda event-listen använder nu upp till 4 ord (var 2) av titeln. v4.16: Fixat att AI-skapandet inte visade rich_text/extra_info i den synliga editorn (Draftail-fält skrivs nu via updateDraftail()). Äldre versioner: se git-historiken.
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.com/cms/pages/*/edit/*
@@ -30,7 +30,7 @@
   // överst i filen. Används i loggens startrad och i versionsmärket i
   // widgetarnas rubrik (mörkblå text/bakgrund, oberoende av tema, så man
   // alltid kan se på skärmen exakt vilken version som körs).
-  const SCRIPT_VERSION = '4.19';
+  const SCRIPT_VERSION = '4.20';
   function versionBadgeHTML() {
     return '<span style="display:inline-block;margin-left:8px;padding:1px 7px;' +
       'border-radius:5px;background:#dbe7ff;color:#0b3d91;font-size:11px;' +
@@ -352,8 +352,11 @@
   }
 
   // ===== WHAT'S ON =====
-  // Steg 1 av flera: flik, inställningsfält och månadsväljare. Själva
-  // event-hämtningen/checklistan/skrivandet byggs i senare steg.
+  // Steg 1: flik, inställningsfält och månadsväljare.
+  // Steg 2: hämtning/filtrering/kategorisering av kalenderevent + checklista
+  // (se whatsOnState och funktionerna längre ner i den här sektionen).
+  // Kvar: guide-checklistan (card_image_link) samt att faktiskt skriva den
+  // färdiga texten/bilderna till sidans fält.
   const MONTH_NAMES_SV = ['januari','februari','mars','april','maj','juni','juli','augusti','september','oktober','november','december'];
   const MONTH_NAMES_EN = ['January','February','March','April','May','June','July','August','September','October','November','December'];
   const DEFAULT_CALENDAR_API_COM = 'https://www.visitstockholm.com/api/v1/singulareventdates/';
@@ -391,6 +394,301 @@
     selectEl.innerHTML = buildWhatsOnMonthOptions()
       .map(o => '<option value="' + o.value + '">' + esc(o.label) + '</option>')
       .join('');
+  }
+
+  // Steg 2: hämtning/filtrering/kategorisering av kalenderevent + checklista.
+  let whatsOnState = null;
+
+  // GM_xmlhttpRequest istället för fetch (som eventbots sameOriginGet
+  // använder) — dels eftersom kalender-API:ets override-fält kan peka på
+  // ANDRA domänen än den man står på, dels eftersom Biggest
+  // Events/Opening Soon-sidorna nedan uttryckligen ska funka "oavsett
+  // domän" (Arons ord), och GM_xmlhttpRequest kringgår CORS/SOP helt.
+  function gmGet(url) {
+    return new Promise((resolve, reject) => {
+      GM_xmlhttpRequest({
+        method: 'GET', url,
+        onload: r => {
+          if (r.status < 200 || r.status >= 300) return reject(new Error('HTTP ' + r.status + ' (' + url + ')'));
+          resolve(r.responseText);
+        },
+        onerror: () => reject(new Error('Nätverksfel (' + url + ')')),
+        ontimeout: () => reject(new Error('Timeout (' + url + ')')), timeout: 30000
+      });
+    });
+  }
+
+  async function gmGetJson(url) {
+    const text = await gmGet(url);
+    try { return JSON.parse(text); } catch { throw new Error('Ogiltig JSON från ' + url); }
+  }
+
+  // Perioden som ska täckas för en given startmånad ("YYYY-MM") — 1 månad
+  // på .se (en månad i taget), 3 månader på .com (samlingssida). end är
+  // EXKLUSIVT (första dagen efter periodens slut).
+  function getWhatsOnPeriodRange(monthValue) {
+    const [y, m] = monthValue.split('-').map(Number);
+    const start = new Date(y, m - 1, 1);
+    const span = isSwedishDomain() ? 1 : 3;
+    const end = new Date(y, m - 1 + span, 1);
+    return { start, end };
+  }
+
+  function parseISODate(s) {
+    if (!s) return null;
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  function datesOverlap(evStartStr, evEndStr, rangeStart, rangeEnd) {
+    const evStart = parseISODate(evStartStr);
+    if (!evStart) return false;
+    const evEnd = parseISODate(evEndStr) || evStart;
+    return evStart < rangeEnd && evEnd >= rangeStart;
+  }
+
+  // Säkerhetsspärr mot en oändlig loop om total_pages skulle vara felaktigt
+  // (t.ex. saknas i svaret) — se samma mönster i eventbots Nortic-hämtning.
+  const WHATSON_MAX_PAGES = 300;
+
+  // Hämtar ALLA sidor av kalendern och filtrerar på period lokalt — hämtar
+  // inte bara "tillräckligt många sidor" eftersom vi inte kan garantera att
+  // API:et returnerar posterna i datumordning (eventbots motsvarande
+  // hämtning gör samma sak, av samma anledning: korrekthet före hastighet).
+  async function fetchCalendarEventsInRange(range) {
+    const base = getCalendarApiBase();
+    const seenIds = new Set();
+    const inRange = [];
+    let page = 1, totalPages = 1, rawCount = 0;
+    do {
+      const sep = base.includes('?') ? '&' : '?';
+      const url = base + sep + 'page=' + page;
+      vlog('WHAT\'S ON: hämtar kalendersida ' + page + (totalPages > 1 ? '/' + totalPages : '') + '...');
+      const data = await gmGetJson(url);
+      totalPages = data.total_pages || 1;
+      for (const r of (data.results || [])) {
+        rawCount++;
+        if (r.id != null) {
+          if (seenIds.has(r.id)) continue;
+          seenIds.add(r.id);
+        }
+        const s = r.start_date, e = r.end_date || r.start_date;
+        if (s && datesOverlap(s, e, range.start, range.end)) inRange.push(r);
+      }
+      page++;
+      if (page <= totalPages) await wait(80);
+    } while (page <= totalPages && page <= WHATSON_MAX_PAGES);
+    if (page > WHATSON_MAX_PAGES && page <= totalPages) {
+      vlog('WHAT\'S ON: hämtningen stoppades efter ' + WHATSON_MAX_PAGES + ' sidor (säkerhetsspärr) — fler event kan saknas.', 'err');
+    }
+    vlog('WHAT\'S ON: ' + rawCount + ' rader genomsökta över ' + (page - 1) + ' sida(or), ' + inRange.length + ' inom perioden.', 'ok');
+    return inRange;
+  }
+
+  // Kategori → sektion. BÄSTA GISSNING baserad på API:ets category/
+  // categories/subcategory-fält — inte ännu verifierad mot en riktig körning.
+  // Kategorier som inte finns här hamnar i "other" (visas som "Övrigt" i
+  // checklistan, aldrig tyst bortsorterade) och loggas så mappningen kan
+  // rättas när ett riktigt svar från API:et har synats.
+  const CATEGORY_TO_SECTION = {
+    'music': 'concerts', 'concerts': 'concerts', 'festivals': 'concerts',
+    'stage-film': 'theatre', 'stage': 'theatre', 'theatre': 'theatre', 'film': 'theatre',
+    'exhibitions': 'museums', 'exhibition': 'museums', 'museums': 'museums'
+  };
+  const SECTION_ORDER = ['concerts', 'theatre', 'museums', 'other'];
+  const SECTION_LABELS = {
+    concerts: 'Konserter & festivaler',
+    theatre: 'Scen & film',
+    museums: 'Museer & utställningar',
+    other: 'Övrigt (okänd kategori)'
+  };
+  const MAX_EVENTS_PER_SECTION = 20;
+
+  // De interna CMS-sidorna för "Biggest events"/"Opening soon"-guiderna.
+  // Fungerar oavsett vilken domän man står på (bekräftat av Aron).
+  const BIG_EVENTS_PAGE_IDS = [1298, 2353];
+  const OPENING_SOON_PAGE_IDS = [4197, 4557];
+
+  function categoryOf(ev) {
+    const cats = [];
+    if (ev.category) cats.push(ev.category);
+    if (Array.isArray(ev.categories)) cats.push(...ev.categories);
+    if (ev.subcategory) cats.push(ev.subcategory);
+    return cats.filter(Boolean).map(c => String(c).toLowerCase());
+  }
+
+  function sectionForEvent(ev) {
+    for (const c of categoryOf(ev)) {
+      if (CATEGORY_TO_SECTION[c]) return CATEGORY_TO_SECTION[c];
+    }
+    return 'other';
+  }
+
+  // Matchar event mot guidernas innehåll via slug i /event/ eller /events/-
+  // länkar — INTE via ett gissat fältnamn i guidens CMS-data, eftersom vi
+  // inte känner till guidernas exakta fältstruktur. Vilken metod guiderna än
+  // använder för att lista sina event (StreamField, relationsfält, manuella
+  // länkar) landar de nästan säkert som en länk till eventets egen sida
+  // någonstans i den hämtade HTML:en, så en bred slug-sökning över hela
+  // sidan degraderar snyggt: ingen match = inga taggar, aldrig ett krasch.
+  function extractEventSlugsFromHtml(html) {
+    const slugs = new Set();
+    const re = /\/events?\/([a-z0-9][a-z0-9-]*)/gi;
+    let m;
+    while ((m = re.exec(html || ''))) slugs.add(m[1].toLowerCase());
+    return slugs;
+  }
+
+  function slugFromHref(href) {
+    const m = /\/events?\/([a-z0-9][a-z0-9-]*)/i.exec(href || '');
+    return m ? m[1].toLowerCase() : null;
+  }
+
+  async function fetchRelatedEventSlugsFromCmsPages(pageIds, label) {
+    const slugs = new Set();
+    for (const id of pageIds) {
+      const url = 'https://www.visitstockholm.com/cms/pages/' + id + '/edit/';
+      try {
+        const html = await gmGet(url);
+        const found = extractEventSlugsFromHtml(html);
+        found.forEach(s => slugs.add(s));
+        vlog(label + ': sida ' + id + ' — ' + found.size + ' event-slug(ar) hittade.');
+      } catch (e) {
+        vlog(label + ': kunde inte läsa sida ' + id + ' (' + e.message + ') — hoppar över, taggning blir ofullständig.', 'warn');
+      }
+    }
+    return slugs;
+  }
+
+  function slimEvent(r) {
+    return {
+      id: r.id != null ? r.id : null,
+      title: r.title || '',
+      description: r.description || '',
+      image: r.image || '',
+      start_date: r.start_date || '',
+      end_date: r.end_date || r.start_date || '',
+      href: r.href || '',
+      venue_name: r.venue_name || '',
+      address: r.address || '',
+      external_website_url: r.external_website_url || '',
+      external_website_url_text: r.external_website_url_text || ''
+    };
+  }
+
+  // Taggade event (Big Event/Opening Soon) räknas alltid med, UTÖVER taket
+  // på MAX_EVENTS_PER_SECTION för resten — annars skulle ett tak kunna
+  // trycka bort just de event som uttryckligen ska lyftas fram.
+  function groupEventsIntoSections(events, tags) {
+    const sections = { concerts: [], theatre: [], museums: [], other: [] };
+    const unmappedCats = new Set();
+
+    for (const ev of events) {
+      const section = sectionForEvent(ev);
+      if (section === 'other') categoryOf(ev).forEach(c => unmappedCats.add(c));
+
+      const slug = slugFromHref(ev.href);
+      const isBig = !!(slug && tags.big.has(slug));
+      const isOpening = !!(slug && tags.opening.has(slug));
+      sections[section].push(Object.assign(slimEvent(ev), { isBig, isOpening }));
+    }
+
+    if (unmappedCats.size) {
+      vlog('WHAT\'S ON: ' + unmappedCats.size + ' okänd(a) kategori(er) hamnade i "Övrigt": ' + [...unmappedCats].join(', ') + ' — komplettera CATEGORY_TO_SECTION vid behov.', 'warn');
+    }
+
+    for (const key of Object.keys(sections)) {
+      sections[key].sort((a, b) => {
+        const aTag = (a.isBig || a.isOpening) ? 0 : 1;
+        const bTag = (b.isBig || b.isOpening) ? 0 : 1;
+        if (aTag !== bTag) return aTag - bTag;
+        return (a.start_date || '').localeCompare(b.start_date || '');
+      });
+      const tagged = sections[key].filter(e => e.isBig || e.isOpening);
+      const untagged = sections[key].filter(e => !e.isBig && !e.isOpening);
+      const room = Math.max(0, MAX_EVENTS_PER_SECTION - tagged.length);
+      sections[key] = tagged.concat(untagged.slice(0, room));
+    }
+    return sections;
+  }
+
+  function setWhatsOnStatus(msg, kind) {
+    const s = document.getElementById('sb-whatson-status');
+    if (s) {
+      s.textContent = msg;
+      s.className = 'sb-status ' + (kind || 'work');
+      s.style.display = 'block';
+    }
+  }
+
+  // Kryssrutorna är förikryssade ENDAST för taggade event (Big Event/
+  // Opening Soon) — övriga event visas men väljs manuellt, precis som
+  // specificerat ("förval av taggade event").
+  function renderWhatsOnChecklist(sections) {
+    const container = $('sb-whatson-checklist');
+    if (!container) return;
+    let html = '';
+    let any = false;
+    for (const key of SECTION_ORDER) {
+      const list = sections[key] || [];
+      if (!list.length) continue;
+      any = true;
+      html += '<div class="sb-whatson-section-title">' + esc(SECTION_LABELS[key]) + ' (' + list.length + ')</div>';
+      html += '<div class="sb-whatson-list">';
+      for (const ev of list) {
+        const tagIcons = (ev.isBig ? '🌟 ' : '') + (ev.isOpening ? '🆕 ' : '');
+        const dateRange = ev.end_date && ev.end_date !== ev.start_date
+          ? esc(ev.start_date) + ' – ' + esc(ev.end_date)
+          : esc(ev.start_date);
+        html += '<label class="sb-check sb-whatson-item">' +
+          '<input type="checkbox" data-section="' + key + '" data-id="' + esc(String(ev.id)) + '"' +
+          ((ev.isBig || ev.isOpening) ? ' checked' : '') + '>' +
+          '<span>' + tagIcons + esc(ev.title) + ' <span class="sb-whatson-date">(' + dateRange + ')</span></span>' +
+          '</label>';
+      }
+      html += '</div>';
+    }
+    container.innerHTML = any ? html : '<div class="sb-status err" style="display:block;">Inga event hittades för vald period.</div>';
+  }
+
+  async function handleWhatsOnFetch() {
+    if (busy) return;
+    const monthValue = ($('sb-whatson-month') || {}).value;
+    if (!monthValue) { setWhatsOnStatus('Välj en period först.', 'err'); return; }
+
+    busy = true;
+    $('sb-whatson-fetch').disabled = true;
+    $('sb-whatson-checklist').innerHTML = '';
+
+    try {
+      const range = getWhatsOnPeriodRange(monthValue);
+      vlog('WHAT\'S ON: period ' + range.start.toISOString().slice(0, 10) + ' t.o.m. (excl.) ' + range.end.toISOString().slice(0, 10));
+      setWhatsOnStatus('Hämtar event från kalendern...', 'work');
+      const events = await fetchCalendarEventsInRange(range);
+
+      setWhatsOnStatus('Kontrollerar Biggest Events/Opening Soon-guiderna...', 'work');
+      const [bigSlugs, openingSlugs] = await Promise.all([
+        fetchRelatedEventSlugsFromCmsPages(BIG_EVENTS_PAGE_IDS, 'Biggest Events'),
+        fetchRelatedEventSlugsFromCmsPages(OPENING_SOON_PAGE_IDS, 'Opening Soon')
+      ]);
+
+      const sections = groupEventsIntoSections(events, { big: bigSlugs, opening: openingSlugs });
+      whatsOnState = { monthValue, range, sections };
+      renderWhatsOnChecklist(sections);
+
+      const total = SECTION_ORDER.reduce((n, k) => n + sections[k].length, 0);
+      if (total === 0) {
+        setWhatsOnStatus('Inga event hittades för vald period.', 'err');
+      } else {
+        setWhatsOnStatus('✅ ' + total + ' event hittade — kryssa i/ur och fortsätt.', 'ok');
+      }
+    } catch (e) {
+      vlog('WHAT\'S ON: fel — ' + e.message, 'err');
+      setWhatsOnStatus('❌ ' + e.message, 'err');
+    } finally {
+      busy = false;
+      $('sb-whatson-fetch').disabled = false;
+    }
   }
 
   // ===== BILDAUTOMATION (alt-text via pixtral) =====
@@ -2003,6 +2301,32 @@
       background: #3a1f1f;
       border: 1px solid #6a2a2a;
     }
+    .sb-whatson-section-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--vd-txt2);
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      margin: 14px 0 6px;
+    }
+    .sb-whatson-list {
+      max-height: 220px;
+      overflow-y: auto;
+      border: 1px solid var(--vd-line);
+      border-radius: 7px;
+      padding: 6px 8px;
+    }
+    .sb-whatson-item {
+      margin-bottom: 6px;
+      align-items: flex-start;
+    }
+    .sb-whatson-item span {
+      line-height: 1.4;
+    }
+    .sb-whatson-date {
+      color: var(--vd-txt3);
+      font-weight: 500;
+    }
     #sb-logwrap {
       display: none;
       flex-direction: column;
@@ -2085,9 +2409,10 @@
         <div class="sb-tab-panel" data-tab-panel="whatson">
           <div class="sb-row"><label>Period (startmånad)</label><select id="sb-whatson-month" class="sb-key"></select></div>
           <div class="sb-langrow">
-            <button type="button" id="sb-whatson-fetch" disabled title="Kommer i nästa steg">Hämta event</button>
+            <button type="button" id="sb-whatson-fetch">Hämta event</button>
           </div>
           <div class="sb-status" id="sb-whatson-status"></div>
+          <div id="sb-whatson-checklist"></div>
         </div>
         <div class="sb-tab-panel" data-tab-panel="settings">
           <label class="sb-toggle-row">
@@ -2127,6 +2452,7 @@
     $('sb-calendar-api').addEventListener('change', () => GM_setValue('sidbot_calendar_api', $('sb-calendar-api').value.trim()));
 
     populateWhatsOnMonthDropdown($('sb-whatson-month'));
+    $('sb-whatson-fetch').addEventListener('click', handleWhatsOnFetch);
 
     $('sb-darkmode').checked = getStoredTheme() === 'dark';
     $('sb-darkmode').addEventListener('change', () => {
