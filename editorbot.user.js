@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      4.18
-// @description  v4.18: Tog bort restaurang-kryssrutan och all booking_link/booking_link_text-ifyllning (inklusive från översättningsknapparna) eftersom bokningslänken inte längre används. is_restaurant skickas ändå som "false" till agenten så dess egen systemprompt (som fortfarande förväntar sig fältet) fungerar oförändrat. v4.17: Chooser-sökningen i Synka utvalda event-listen använder nu upp till 4 ord (var 2) av titeln — bekräftat upprepade gånger att 2 ord (t.ex. "Yoga at") kunde ge helt orelaterade träffar, troligen för att CMS:ets sökbackend stryker korta stoppord som "at" och söker på bara "Yoga". Fler ord ger nästan alltid med minst ett särskiljande ord till (här: "Vrak"). v4.16: Fixat att AI-skapandet inte visade rich_text/extra_info i den synliga editorn trots att agenten gav bra text — dessa är Draftail-fält vars dolda input innehåller Draft.js egen JSON, inte klartext, så den gamla simulateInput skrev bara till det dolda fältet utan att editorn någonsin uppdaterades. Använder nu samma updateDraftail() som v4.15:s översättningsknappar redan bevisat fungerar. v4.15: Två nya knappar, "🇸🇪 → Svenska" och "🇺🇸 → English (US)", översätter objektsidans egna textfält i-place (title, rich_text, extra_info_text, seo_title, search_description, og_title/description, twitter_title/description, list_title, external_link_text, booking_link_text, related_events_title) — rör aldrig adress/kontakt/URL:er/slug/datum/kryssrutor. Amerikansk engelska, inte brittisk. Samma blocklist-kontroll/omskrivnings-slinga som AI-skapandet skyddar mot att en "naturlig" översättning smyger in klichéer. Portade även Draftail-läsning/skrivning (readDraftailText/mountDraftail/updateDraftail) från eventbot för att korrekt uppdatera rich_text/extra_info_text-fälten (används av översättningen; AI-skapandets egen ifyllning av dessa fält väntar på en separat fix). v4.14: Ny bildautomation — när en bild väljs manuellt i bilduppladdningsmodalen (featured_image/og_image/twitter_image, samma modal som eventbot använder) genereras alt-text (sv/en) automatiskt via pixtral-synmodellen, och kredit/rättighetsdatum (dagens datum + 5 år) fylls i. Kräver sparad Mistral API-nyckel (⚙️-fliken). v4.10: Mörkblått versionsmärke bredvid rubriken i båda widgetarna, så man alltid ser exakt vilken version som körs. v4.9: Fix för web_search-svar som inte gick att tolka som JSON. v4.8: Detaljerad loggning av allt som skickas/tas emot från Mistral, plus fix för falskt "Klar!" när agenten inte gav någon användbar data. Äldre versioner: se git-historiken.
+// @version      4.19
+// @description  v4.19: Steg 1 av "WHAT'S ON"-fliken (för de återkommande "What's on"/"Vad händer i Stockholm"-sidorna): ny flik med en månadsväljare (visar 12 månader framåt, med månaden 2 steg bort från idag överst), plus två nya inställningsfält (What's On agent-ID och en valfri override för kalender-API:ets bas-URL). Ren scaffolding — själva event-hämtningen och textgenereringen byggs i kommande steg. v4.18: Tog bort restaurang-kryssrutan och all booking_link/booking_link_text-ifyllning (inklusive från översättningsknapparna) eftersom bokningslänken inte längre används. is_restaurant skickas ändå som "false" till agenten så dess egen systemprompt (som fortfarande förväntar sig fältet) fungerar oförändrat. v4.17: Chooser-sökningen i Synka utvalda event-listen använder nu upp till 4 ord (var 2) av titeln — bekräftat upprepade gånger att 2 ord (t.ex. "Yoga at") kunde ge helt orelaterade träffar, troligen för att CMS:ets sökbackend stryker korta stoppord som "at" och söker på bara "Yoga". Fler ord ger nästan alltid med minst ett särskiljande ord till (här: "Vrak"). v4.16: Fixat att AI-skapandet inte visade rich_text/extra_info i den synliga editorn trots att agenten gav bra text — dessa är Draftail-fält vars dolda input innehåller Draft.js egen JSON, inte klartext, så den gamla simulateInput skrev bara till det dolda fältet utan att editorn någonsin uppdaterades. Använder nu samma updateDraftail() som v4.15:s översättningsknappar redan bevisat fungerar. v4.15: Två nya knappar, "🇸🇪 → Svenska" och "🇺🇸 → English (US)", översätter objektsidans egna textfält i-place (title, rich_text, extra_info_text, seo_title, search_description, og_title/description, twitter_title/description, list_title, external_link_text, booking_link_text, related_events_title) — rör aldrig adress/kontakt/URL:er/slug/datum/kryssrutor. Amerikansk engelska, inte brittisk. Samma blocklist-kontroll/omskrivnings-slinga som AI-skapandet skyddar mot att en "naturlig" översättning smyger in klichéer. Portade även Draftail-läsning/skrivning (readDraftailText/mountDraftail/updateDraftail) från eventbot för att korrekt uppdatera rich_text/extra_info_text-fälten (används av översättningen; AI-skapandets egen ifyllning av dessa fält väntar på en separat fix). v4.14: Ny bildautomation — när en bild väljs manuellt i bilduppladdningsmodalen (featured_image/og_image/twitter_image, samma modal som eventbot använder) genereras alt-text (sv/en) automatiskt via pixtral-synmodellen, och kredit/rättighetsdatum (dagens datum + 5 år) fylls i. Kräver sparad Mistral API-nyckel (⚙️-fliken). v4.10: Mörkblått versionsmärke bredvid rubriken i båda widgetarna, så man alltid ser exakt vilken version som körs. v4.9: Fix för web_search-svar som inte gick att tolka som JSON. v4.8: Detaljerad loggning av allt som skickas/tas emot från Mistral, plus fix för falskt "Klar!" när agenten inte gav någon användbar data. Äldre versioner: se git-historiken.
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.com/cms/pages/*/edit/*
@@ -30,7 +30,7 @@
   // överst i filen. Används i loggens startrad och i versionsmärket i
   // widgetarnas rubrik (mörkblå text/bakgrund, oberoende av tema, så man
   // alltid kan se på skärmen exakt vilken version som körs).
-  const SCRIPT_VERSION = '4.18';
+  const SCRIPT_VERSION = '4.19';
   function versionBadgeHTML() {
     return '<span style="display:inline-block;margin-left:8px;padding:1px 7px;' +
       'border-radius:5px;background:#dbe7ff;color:#0b3d91;font-size:11px;' +
@@ -349,6 +349,48 @@
     const data = extractJSON(text);
     if (!data) throw new Error('Kunde inte tolka översättningssvaret som JSON.');
     return data;
+  }
+
+  // ===== WHAT'S ON =====
+  // Steg 1 av flera: flik, inställningsfält och månadsväljare. Själva
+  // event-hämtningen/checklistan/skrivandet byggs i senare steg.
+  const MONTH_NAMES_SV = ['januari','februari','mars','april','maj','juni','juli','augusti','september','oktober','november','december'];
+  const MONTH_NAMES_EN = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  const DEFAULT_CALENDAR_API_COM = 'https://www.visitstockholm.com/api/v1/singulareventdates/';
+  const DEFAULT_CALENDAR_API_SE = 'https://www.visitstockholm.se/api/v1/singulareventdates/';
+
+  function isSwedishDomain() {
+    return location.hostname.includes('visitstockholm.se');
+  }
+
+  function getCalendarApiBase() {
+    const override = GM_getValue('sidbot_calendar_api', '').trim();
+    if (override) return override;
+    return isSwedishDomain() ? DEFAULT_CALENDAR_API_SE : DEFAULT_CALENDAR_API_COM;
+  }
+
+  // Månadsväljaren visar 12 månader framåt, med månaden 2 steg bort från
+  // dagens datum FÖRST (t.ex. idag september → november visas överst) —
+  // det är den period man normalt förbereder näst.
+  function buildWhatsOnMonthOptions() {
+    const names = isSwedishDomain() ? MONTH_NAMES_SV : MONTH_NAMES_EN;
+    const now = new Date();
+    const options = [];
+    for (let i = 2; i < 14; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+      options.push({
+        value: d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'),
+        label: names[d.getMonth()] + ' ' + d.getFullYear()
+      });
+    }
+    return options;
+  }
+
+  function populateWhatsOnMonthDropdown(selectEl) {
+    if (!selectEl) return;
+    selectEl.innerHTML = buildWhatsOnMonthOptions()
+      .map(o => '<option value="' + o.value + '">' + esc(o.label) + '</option>')
+      .join('');
   }
 
   // ===== BILDAUTOMATION (alt-text via pixtral) =====
@@ -2023,6 +2065,7 @@
       </div>
       <div id="sb-tabbar">
         <button type="button" class="sb-tab-btn active" data-tab="main">EditorBot</button>
+        <button type="button" class="sb-tab-btn" data-tab="whatson">WHAT'S ON</button>
         <button type="button" class="sb-tab-btn" data-tab="settings" title="Inställningar">⚙️</button>
       </div>
       <div id="sb-scroll">
@@ -2039,6 +2082,13 @@
           </div>
           <div class="sb-status" id="sb-status"></div>
         </div>
+        <div class="sb-tab-panel" data-tab-panel="whatson">
+          <div class="sb-row"><label>Period (startmånad)</label><select id="sb-whatson-month" class="sb-key"></select></div>
+          <div class="sb-langrow">
+            <button type="button" id="sb-whatson-fetch" disabled title="Kommer i nästa steg">Hämta event</button>
+          </div>
+          <div class="sb-status" id="sb-whatson-status"></div>
+        </div>
         <div class="sb-tab-panel" data-tab-panel="settings">
           <label class="sb-toggle-row">
             <span>🌙 Mörkt läge</span>
@@ -2049,6 +2099,8 @@
           </label>
           <div class="sb-row"><label>Mistral API-nyckel</label><input type="text" id="sb-mkey" class="sb-key" placeholder="Mistral Bearer-nyckel" autocomplete="off" spellcheck="false"></div>
           <div class="sb-row"><label>Mistral agent-ID</label><input type="text" id="sb-magent" class="sb-key" placeholder="ag_..." autocomplete="off" spellcheck="false"></div>
+          <div class="sb-row"><label>What's On agent-ID</label><input type="text" id="sb-magent-whatson" class="sb-key" placeholder="ag_..." autocomplete="off" spellcheck="false"></div>
+          <div class="sb-row"><label>Kalender-API (valfritt override)</label><input type="text" id="sb-calendar-api" class="sb-key" placeholder="Lämnas tomt för standard-URL" autocomplete="off" spellcheck="false"></div>
         </div>
       </div>
       <div id="sb-logwrap"><div class="sb-loghdr">Logg <span><button type="button" id="sb-logjson">JSON</button><button type="button" id="sb-logcopy">📋</button><button type="button" id="sb-logclose">✕</button></span></div><div id="sb-log"></div></div>
@@ -2065,6 +2117,16 @@
     $('sb-magent').value = GM_getValue('sidbot_magent', DEFAULT_MISTRAL_AGENT_ID);
     $('sb-mkey').addEventListener('change', () => GM_setValue('sidbot_mkey', $('sb-mkey').value.trim()));
     $('sb-magent').addEventListener('change', () => GM_setValue('sidbot_magent', $('sb-magent').value.trim()));
+
+    // What's On-fliken: eget agent-ID (skilt från objectpage-agenten ovan)
+    // och en valfri override för kalender-API:ets bas-URL (annars används
+    // standard-endpointen för aktuell domän, se buildWhatsOnMonthOptions).
+    $('sb-magent-whatson').value = GM_getValue('sidbot_magent_whatson', '');
+    $('sb-calendar-api').value = GM_getValue('sidbot_calendar_api', '');
+    $('sb-magent-whatson').addEventListener('change', () => GM_setValue('sidbot_magent_whatson', $('sb-magent-whatson').value.trim()));
+    $('sb-calendar-api').addEventListener('change', () => GM_setValue('sidbot_calendar_api', $('sb-calendar-api').value.trim()));
+
+    populateWhatsOnMonthDropdown($('sb-whatson-month'));
 
     $('sb-darkmode').checked = getStoredTheme() === 'dark';
     $('sb-darkmode').addEventListener('change', () => {
