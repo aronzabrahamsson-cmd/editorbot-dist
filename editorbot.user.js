@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      4.23
+// @version      4.24
 // @description  v4.23: Fixat "Skriv till sidan" som inte gjorde något — orsaken var att kategori→sektion-mappningen (WHAT'S ON) bara kände till engelska slugs, medan API:et på .se-domänen faktiskt returnerar lokaliserade SVENSKA kategorietiketter ("musik", "scen & film", "utställningar"), bekräftat via en riktig körning där ALLA 228 event hamnade i "Övrigt" istället för Konserter/Scen & film/Museer. Lade till de svenska etiketterna i CATEGORY_TO_SECTION. Fixade även en "[object Object]"-bugg när ett kategorifält är ett objekt ({id,name}) istället för en sträng. v4.22: Steg 4 (första försöket) — "Skriv till sidan"-knappen skriver ikryssade event/guide till sidans befintliga fact_box/card_image_link-block via simulerad inklistring i Draftail, plus bildinfogning från befintlig bildbank. v4.21: Steg 3 — guide-förslag. v4.20: Steg 2 — hämtning/filtrering/kategorisering + checklista. v4.19: Steg 1 — flik, månadsväljare, inställningsfält. Äldre versioner: se git-historiken.
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
@@ -2721,6 +2721,44 @@
     .sb-row {
       margin-bottom: 11px;
     }
+    .sb-setfieldbtns {
+      display: flex;
+      gap: 8px;
+      margin-top: 4px;
+    }
+    .sb-setfieldbtns button {
+      flex: 1;
+      background: var(--vd-bg2);
+      border: 1px solid var(--vd-line);
+      color: var(--vd-txt);
+      cursor: pointer;
+      padding: 7px 8px;
+      border-radius: 7px;
+      font-size: 12px;
+      font-family: inherit;
+    }
+    .sb-setfieldbtns button:hover {
+      border-color: var(--vd-accent);
+    }
+    .sb-dropzone {
+      margin-top: 4px;
+      margin-bottom: 11px;
+      border: 1px dashed var(--vd-line);
+      border-radius: 7px;
+      padding: 14px 10px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--vd-txt2);
+      cursor: pointer;
+      transition: border-color .15s, background .15s;
+    }
+    .sb-dropzone.hover {
+      border-color: var(--vd-accent);
+      background: var(--vd-bg2);
+    }
+    .sb-dropzone input[type="file"] {
+      display: none;
+    }
     .sb-row label {
       display: block;
       font-size: 11px;
@@ -2996,6 +3034,14 @@
           <div class="sb-row"><label>Mistral agent-ID</label><input type="text" id="sb-magent" class="sb-key" placeholder="ag_..." autocomplete="off" spellcheck="false"></div>
           <div class="sb-row"><label>What's On agent-ID</label><input type="text" id="sb-magent-whatson" class="sb-key" placeholder="ag_..." autocomplete="off" spellcheck="false"></div>
           <div class="sb-row"><label>Kalender-API (valfritt override)</label><input type="text" id="sb-calendar-api" class="sb-key" placeholder="Lämnas tomt för standard-URL" autocomplete="off" spellcheck="false"></div>
+          <div class="sb-setfieldbtns">
+            <button type="button" id="sb-export-fields">⬇ Exportera fält</button>
+            <button type="button" id="sb-import-pick">📂 Välj fil…</button>
+          </div>
+          <div class="sb-dropzone" id="sb-import-drop" title="Släpp en exportfil här">
+            📥 Dra och släpp en exportfil här för att fylla i alla fält
+            <input type="file" id="sb-import-file" accept=".json,application/json">
+          </div>
         </div>
       </div>
       <div id="sb-logwrap"><div class="sb-loghdr">Logg <span><button type="button" id="sb-logjson">JSON</button><button type="button" id="sb-logcopy">📋</button><button type="button" id="sb-logclose">✕</button></span></div><div id="sb-log"></div></div>
@@ -3020,6 +3066,62 @@
     $('sb-calendar-api').value = GM_getValue('sidbot_calendar_api', '');
     $('sb-magent-whatson').addEventListener('change', () => GM_setValue('sidbot_magent_whatson', $('sb-magent-whatson').value.trim()));
     $('sb-calendar-api').addEventListener('change', () => GM_setValue('sidbot_calendar_api', $('sb-calendar-api').value.trim()));
+    // ---- Export/Import av inställningsfält ----
+    // Samma nycklar som fälten ovan. Exporten är en platt JSON-fil som kan
+    // delas (innehåller API-nycklar — hantera därför filen som en hemlighet).
+    const SETTINGS_FIELD_MAP = {
+      sidbot_mkey:           { label: 'Mistral API-nyckel',   id: 'sb-mkey' },
+      sidbot_magent:         { label: 'Mistral agent-ID',    id: 'sb-magent' },
+      sidbot_magent_whatson: { label: "What's On agent-ID", id: 'sb-magent-whatson' },
+      sidbot_calendar_api:   { label: 'Kalender-API',        id: 'sb-calendar-api' }
+    };
+    function exportSettingsFile() {
+      const data = {};
+      Object.keys(SETTINGS_FIELD_MAP).forEach(k => { data[k] = GM_getValue(k, ''); });
+      const blob = new Blob([JSON.stringify(data, null, 2) + '\n'], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'editorbot-settings.json';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      vlog('Inställningar exporterade (editorbot-settings.json).', 'ok');
+    }
+    function importSettingsText(text) {
+      let obj;
+      try { obj = JSON.parse(text); } catch { vlog('Import: filen är inte giltig JSON.', 'err'); return; }
+      let count = 0;
+      Object.keys(SETTINGS_FIELD_MAP).forEach(k => {
+        if (!(k in obj)) return;
+        const val = String(obj[k] == null ? '' : obj[k]).trim();
+        GM_setValue(k, val);
+        const el = $(SETTINGS_FIELD_MAP[k].id);
+        if (el) el.value = val;
+        count++;
+      });
+      vlog('Import: ' + count + ' fält inlästa (' +
+           Object.keys(SETTINGS_FIELD_MAP).filter(k => k in obj).map(k => SETTINGS_FIELD_MAP[k].label).join(', ') + ').', 'ok');
+    }
+    function importSettingsFile(file) {
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => importSettingsText(String(reader.result));
+      reader.onerror = () => vlog('Import: kunde inte läsa filen.', 'err');
+      reader.readAsText(file);
+    }
+    $('sb-export-fields').addEventListener('click', exportSettingsFile);
+    const dropzone = $('sb-import-drop');
+    $('sb-import-pick').addEventListener('click', () => $('sb-import-file').click());
+    $('sb-import-file').addEventListener('change', e => { importSettingsFile(e.target.files[0]); e.target.value = ''; });
+    ['dragenter', 'dragover'].forEach(ev => dropzone.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); dropzone.classList.add('hover'); }));
+    ['dragleave', 'drop'].forEach(ev => dropzone.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); dropzone.classList.remove('hover'); }));
+    dropzone.addEventListener('drop', e => {
+      const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (file && !/\.json$/i.test(file.name) && file.type !== 'application/json') {
+        vlog('Import: förväntade en .json-fil, fick "' + file.name + '".', 'err');
+        return;
+      }
+      importSettingsFile(file);
+    });
 
     populateWhatsOnMonthDropdown($('sb-whatson-month'));
     $('sb-whatson-fetch').addEventListener('click', handleWhatsOnFetch);
