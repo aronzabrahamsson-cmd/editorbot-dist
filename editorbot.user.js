@@ -2168,7 +2168,7 @@
       // — dessa ÄR sökträffarna. Den gamla breda skanningen (a, button, li,
       // div, span, tr) plockade upp SAMMA titel flera gånger på olika
       // nivåer (länken själv, dess <div>, <td>, <tr>) som om de vore
-      // separata konkurrerande träffar, plus rena sideelement (rubriker,
+      // separata konkurrerande träffar, plus rena sidoelement (rubriker,
       // bläddringsknappar) som råka poängsättas positivt — det var
       // därför "bästa" och "näst bästa" ofta visade EXAKT samma text med
       // olika poäng, och ingendera nådde tröskeln för att klickas.
@@ -2569,3 +2569,1281 @@
 
     const subIdxs = epFindEventSubIndices(blockIdx);
     vlog('Hittade ' + subIdxs.length + ' rad-index i blocket: ' + subIdxs.join(', '));
+    const events = [];
+
+    for (const si of subIdxs) {
+      const valEl = $(pfx + 'events-' + si + '-value');
+      if (!valEl || !valEl.value) {
+        vlog('  Rad ' + si + ': inget värde, hoppar över.');
+        continue;
+      }
+
+      const wrapper = valEl.closest('li, [data-contentpath]') || valEl.parentElement;
+
+      // Wagtails StreamField-radering är "mjuk": klick på papperskorgen
+      // döljer raden direkt i DOM:en (för att kunna ångra), men tar INTE
+      // bort de underliggande fält-inputs förrän sidan faktiskt sparas.
+      // En rad som användaren precis raderat manuellt utan att spara sidan
+      // finns alltså kvar med sitt gamla värde om man bara letar efter
+      // inputs — måste explicit hoppa över dolda/raderade rader.
+      const style = wrapper ? getComputedStyle(wrapper) : null;
+      const isHidden = !wrapper || wrapper.offsetParent === null ||
+        style.visibility === 'hidden' || style.display === 'none' ||
+        wrapper.hasAttribute('hidden') || wrapper.getAttribute('aria-hidden') === 'true';
+      if (isHidden) {
+        vlog('  Rad ' + si + ' (id=' + valEl.value + '): dold i DOM:en — troligen raderad manuellt utan att sidan sparats. Hoppar över.' +
+          (wrapper ? ' [class="' + wrapper.className + '"]' : ' [ingen wrapper hittad]'), 'warn');
+        continue;
+      }
+
+      const orderEl = document.querySelector('input[name="' + pfx + 'events-' + si + '-order"]');
+
+      let displayText = '';
+      if (wrapper) {
+        const directChildren = wrapper.querySelectorAll('a, strong, span, div, label, .title');
+        for (const el of directChildren) {
+          const text = el.textContent.trim();
+          if (text && text.length > 1 && text.length < 200) {
+            displayText = text;
+            break;
+          }
+        }
+
+        if (!displayText) {
+          const walker = document.createTreeWalker(wrapper, NodeFilter.SHOW_TEXT);
+          let node;
+          while (node = walker.nextNode()) {
+            const text = node.textContent.trim();
+            if (text && text.length > 1 && text.length < 200) {
+              displayText = text;
+              break;
+            }
+          }
+        }
+
+        if (!displayText && valEl.value) {
+          displayText = valEl.value.split('/').pop();
+        }
+      }
+
+      displayText = cleanDisplayText(displayText);
+
+      vlog('  Rad ' + si + ': id=' + valEl.value + ', order=' + (orderEl ? orderEl.value : '?') + ', text="' + displayText + '" — inkluderas.', 'ok');
+
+      events.push({
+        id: valEl.value,
+        order: orderEl ? parseInt(orderEl.value, 10) : 0,
+        displayText: displayText || 'Event ' + (events.length + 1)
+      });
+    }
+
+    events.sort((a, b) => a.order - b.order);
+    vlog('Kopierade ' + events.length + ' event: ' + events.map(e => '"' + e.displayText + '"').join(', '), 'ok');
+
+    GM_setValue(EP_STORAGE_KEY, JSON.stringify({
+      sortByDate, excludeUrls, events, ts: Date.now()
+    }));
+
+    if (excludeUrls) GM_setClipboard(excludeUrls);
+
+    setEpStatus('✅ Kopierat ' + events.length + ' event, samt excluderade url:er');
+  }
+
+  function epClearStoredData() {
+    GM_setValue(EP_STORAGE_KEY, '');
+    setEpStatus('Data rensad');
+  }
+
+  function epOpenOtherPages() {
+    const currentPage = epCurrentPageId();
+    const others = EP_PAGE_NAMES.filter(name => name !== currentPage);
+
+    const existing = document.getElementById('ep-open-links');
+    if (existing) existing.remove();
+
+    const wrap = document.createElement('span');
+    wrap.id = 'ep-open-links';
+    wrap.style.marginLeft = '8px';
+    wrap.innerHTML = others.map(name => {
+      const pageId = EP_PAGE_MAPPING[name];
+      return `<a href="${location.origin}/cms/pages/${pageId}/edit/" target="_blank" rel="noopener" style="color:var(--vd-accent); margin-right:6px; font-size:11px; text-decoration:none;">${name}</a>`;
+    }).join('');
+    document.getElementById('ep-fill').insertAdjacentElement('afterend', wrap);
+  }
+
+  // ===== UI MED FIXAD POSITIONERING =====
+  const EP_CSS = `
+    :root {
+      --vd-bg:#1e222b;
+      --vd-bg2:#262b36;
+      --vd-bg3:#2f3542;
+      --vd-line:#3a3f4b;
+      --vd-txt:#e8eaee;
+      --vd-txt2:#a8adb8;
+      --vd-txt3:#787e8a;
+      --vd-accent:#4a9fe0;
+    }
+    #ep-bar {
+      position: fixed !important;
+      top: 0 !important;
+      left: 0 !important;
+      right: 0 !important;
+      z-index: 999999 !important;
+      background: var(--vd-bg);
+      border-bottom: 2px solid var(--vd-accent);
+      box-shadow: 0 4px 20px rgba(0,0,0,.4);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      font-family: system-ui, sans-serif;
+      color: var(--vd-txt);
+      font-size: 13px;
+    }
+    #ep-bar .ep-title {
+      font-weight: 700;
+      white-space: nowrap;
+    }
+    #ep-bar .ep-g {
+      flex: 1;
+    }
+    #ep-bar button {
+      background: var(--vd-bg2);
+      border: 1px solid var(--vd-line);
+      color: var(--vd-txt);
+      border-radius: 5px;
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    #ep-bar button:hover {
+      background: var(--vd-bg3);
+    }
+    #ep-bar button.ep-primary {
+      background: var(--vd-accent);
+      color: #0d1520;
+      border: none;
+    }
+    #ep-bar button.ep-primary:hover {
+      filter: brightness(1.1);
+    }
+    #ep-bar button.ep-danger {
+      color: #ff8080;
+    }
+    #ep-bar button.ep-log {
+      background: var(--vd-bg3);
+    }
+    #ep-status {
+      font-size: 11px;
+      color: var(--vd-txt3);
+      margin-left: 8px;
+      white-space: nowrap;
+    }
+    #ep-logwrap {
+      display: none;
+      position: fixed !important;
+      top: 40px !important;
+      left: 10px !important;
+      z-index: 999998 !important;
+      width: 500px;
+      max-height: 70vh;
+      background: var(--vd-bg2);
+      border: 1px solid var(--vd-line);
+      border-radius: 8px;
+      box-shadow: 0 4px 20px rgba(0,0,0,.6);
+      overflow: hidden;
+      resize: both;
+    }
+    #ep-loghdr {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 6px 8px;
+      background: var(--vd-bg3);
+      border-bottom: 1px solid var(--vd-line);
+      font-size: 11px;
+      font-weight: 600;
+    }
+    #ep-log {
+      overflow-y: auto;
+      height: calc(100% - 30px);
+      padding: 8px;
+      font-family: monospace;
+      font-size: 11px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+    }
+    .sb-logline {
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .sb-logline.err {
+      color: #ff8080;
+    }
+    .sb-logline.ok {
+      color: #7ddca0;
+    }
+    .sb-logline.work {
+      color: #e0b060;
+    }
+    #ep-loghdr button {
+      background: rgba(255,255,255,.08);
+      border: none;
+      color: var(--vd-txt);
+      height: 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 10px;
+      padding: 0 5px;
+      margin-left: 4px;
+    }
+    #ep-bar-mini {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      z-index: 999999;
+      width: 36px;
+      height: 36px;
+      background: var(--vd-bg);
+      border: 2px solid var(--vd-accent);
+      border-radius: 8px;
+      box-shadow: 0 4px 20px rgba(0,0,0,.4);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 15px;
+    }
+    #ep-bar-mini:hover {
+      background: var(--vd-bg2);
+    }
+    #ep-open-links {
+      margin-left: 8px;
+    }
+    #ep-open-links a {
+      color: var(--vd-accent);
+      margin-right: 6px;
+      font-size: 11px;
+      text-decoration: none;
+    }
+    #ep-open-links a:hover {
+      text-decoration: underline;
+    }
+  `;
+
+  function buildEventportorBar() {
+    const baseStyle = document.createElement('style');
+    baseStyle.textContent = `:root {
+      --vd-bg: #1e222b;
+      --vd-bg2: #262b36;
+      --vd-bg3: #2f3542;
+      --vd-line: #3a3f4b;
+      --vd-txt: #e8eaee;
+      --vd-txt2: #a8adb8;
+      --vd-txt3: #787e8a;
+      --vd-accent: #4a9fe0;
+    }`;
+    document.head.appendChild(baseStyle);
+
+    const style = document.createElement('style');
+    style.textContent = EP_CSS;
+    document.head.appendChild(style);
+
+    const bar = document.createElement('div');
+    bar.id = 'ep-bar';
+    bar.innerHTML = `
+      <span class="ep-title">Synka utvalda event</span>${versionBadgeHTML()}
+      <button type="button" id="ep-copy">📋 Kopiera</button>
+      <button type="button" id="ep-fill" class="ep-primary">🧹 Rensa & fyll</button>
+      <button type="button" id="ep-clear-data" class="ep-danger" title="Rensa data">🗑️</button>
+      <button type="button" id="ep-logbtn" class="ep-log" title="Visa logg">📋 Logg</button>
+      <span id="ep-status"></span>
+      <span class="ep-g"></span>
+      <button type="button" id="ep-min" title="Minimera">▁</button>
+    `;
+    document.body.appendChild(bar);
+    document.body.style.paddingTop = (bar.offsetHeight || 40) + 'px';
+    document.body.style.marginTop = '0 !important';
+
+    const logWrap = document.createElement('div');
+    logWrap.id = 'ep-logwrap';
+    logWrap.innerHTML = `
+      <div id="ep-loghdr">
+        <span>Logg</span>
+        <span>
+          <button type="button" id="ep-logcopy" title="Kopiera">📋</button>
+          <button type="button" id="ep-logclear" title="Rensa">🗑️</button>
+          <button type="button" id="ep-logclose">✕</button>
+        </span>
+      </div>
+      <div id="ep-log"></div>
+    `;
+    document.body.appendChild(logWrap);
+
+    const mini = document.createElement('div');
+    mini.id = 'ep-bar-mini';
+    mini.title = 'Visa Synka utvalda event';
+    mini.textContent = '📋';
+    document.body.appendChild(mini);
+
+    // Logg-knappar
+    document.getElementById('ep-logbtn').addEventListener('click', () => {
+      const w = document.getElementById('ep-logwrap');
+      w.style.display = w.style.display === 'none' ? 'block' : 'none';
+      if (w.style.display === 'block') renderLog();
+    });
+    document.getElementById('ep-logclose').addEventListener('click', () => {
+      document.getElementById('ep-logwrap').style.display = 'none';
+    });
+    document.getElementById('ep-logcopy').addEventListener('click', async () => {
+      const btn = document.getElementById('ep-logcopy');
+      const text = VLOG.map(e => e.line).join('\n');
+      try {
+        await navigator.clipboard.writeText(text);
+        btn.textContent = '✓'; setTimeout(() => btn.textContent = '📋', 1500);
+      } catch { btn.textContent = '✗'; setTimeout(() => btn.textContent = '📋', 1500); }
+    });
+    document.getElementById('ep-logclear').addEventListener('click', () => { VLOG = []; renderLog(); });
+
+    // Minimera
+    function minimize() {
+      bar.style.display = 'none';
+      document.body.style.paddingTop = '';
+      document.body.style.marginTop = '';
+      mini.style.display = 'flex';
+      document.getElementById('ep-logwrap').style.display = 'none';
+    }
+    function restore() {
+      bar.style.display = 'flex';
+      document.body.style.paddingTop = (bar.offsetHeight || 40) + 'px';
+      document.body.style.marginTop = '0 !important';
+      mini.style.display = 'none';
+    }
+    document.getElementById('ep-min').addEventListener('click', minimize);
+    mini.addEventListener('click', restore);
+
+    // Knappar
+    document.getElementById('ep-copy').addEventListener('click', epCopyFields);
+    document.getElementById('ep-fill').addEventListener('click', epClearAndFill);
+    document.getElementById('ep-clear-data').addEventListener('click', epClearStoredData);
+
+    // Länkar för andra sidor
+    epOpenOtherPages();
+
+    vlog('Synka utvalda event v' + SCRIPT_VERSION + ' startad', 'ok');
+  }
+
+  // ===== HUVUDPANEL =====
+  const PANEL_CSS = `
+    :root {
+      --vd-bg: #1e222b;
+      --vd-bg2: #262b36;
+      --vd-bg3: #2f3542;
+      --vd-line: #3a3f4b;
+      --vd-txt: #e8eaee;
+      --vd-txt2: #a8adb8;
+      --vd-txt3: #787e8a;
+      --vd-accent: #4a9fe0;
+    }
+    #sb-panel {
+      position: fixed;
+      z-index: 999999;
+      background: var(--vd-bg);
+      color: var(--vd-txt);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      border: 1px solid var(--vd-line);
+      border-radius: 12px;
+      box-shadow: 0 10px 40px rgba(0,0,0,.5);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      bottom: 18px;
+      right: 18px;
+      width: 300px;
+    }
+    #sb-panel.max {
+      top: 18px;
+      bottom: 18px;
+      right: 18px;
+      width: 420px;
+    }
+    #sb-panel.min #sb-scroll,
+    #sb-panel.min #sb-tabbar {
+      display: none;
+    }
+    #sb-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 11px 13px;
+      background: var(--vd-bg2);
+      border-bottom: 1px solid var(--vd-line);
+      flex-shrink: 0;
+    }
+    #sb-head .t {
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: -.01em;
+    }
+    #sb-headbtns {
+      display: flex;
+      gap: 3px;
+      align-items: center;
+    }
+    #sb-headbtns .g {
+      width: 14px;
+      display: inline-block;
+    }
+    #sb-headbtns button {
+      background: rgba(255,255,255,.08);
+      border: none;
+      color: var(--vd-txt);
+      cursor: pointer;
+      width: 26px;
+      height: 24px;
+      border-radius: 6px;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #sb-headbtns button:hover {
+      background: rgba(255,255,255,.18);
+    }
+    #sb-headbtns button.on {
+      background: var(--vd-accent);
+      color: #0d1520;
+    }
+    #sb-tabbar {
+      display: flex;
+      gap: 3px;
+      padding: 8px 10px 0;
+      background: var(--vd-bg2);
+      border-bottom: 1px solid var(--vd-line);
+      flex-shrink: 0;
+    }
+    .sb-tab-btn {
+      background: transparent;
+      border: none;
+      color: var(--vd-txt2);
+      font-size: 12.5px;
+      font-weight: 650;
+      padding: 7px 12px;
+      border-radius: 6px 6px 0 0;
+      cursor: pointer;
+    }
+    .sb-tab-btn:hover {
+      color: var(--vd-txt);
+      background: rgba(255,255,255,.06);
+    }
+    .sb-tab-btn.active {
+      color: var(--vd-accent);
+      background: var(--vd-bg);
+      box-shadow: inset 0 -2px 0 var(--vd-accent);
+    }
+    .sb-tab-panel {
+      display: none;
+    }
+    .sb-tab-panel.active {
+      display: block;
+    }
+    #sb-scroll {
+      overflow-y: auto;
+      padding: 14px 15px;
+      flex: 1;
+    }
+    .sb-row {
+      margin-bottom: 11px;
+    }
+    .sb-setfieldbtns {
+      display: flex;
+      gap: 8px;
+      margin-top: 4px;
+    }
+    .sb-setfieldbtns button {
+      flex: 1;
+      background: var(--vd-bg2);
+      border: 1px solid var(--vd-line);
+      color: var(--vd-txt);
+      cursor: pointer;
+      padding: 7px 8px;
+      border-radius: 7px;
+      font-size: 12px;
+      font-family: inherit;
+    }
+    .sb-setfieldbtns button:hover {
+      border-color: var(--vd-accent);
+    }
+    .sb-dropzone {
+      margin-top: 4px;
+      margin-bottom: 11px;
+      border: 1px dashed var(--vd-line);
+      border-radius: 7px;
+      padding: 14px 10px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--vd-txt2);
+      cursor: pointer;
+      transition: border-color .15s, background .15s;
+    }
+    .sb-dropzone.hover {
+      border-color: var(--vd-accent);
+      background: var(--vd-bg2);
+    }
+    .sb-dropzone input[type="file"] {
+      display: none;
+    }
+    .sb-row label {
+      display: block;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--vd-txt2);
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      margin-bottom: 5px;
+    }
+    .sb-key {
+      width: 100%;
+      box-sizing: border-box;
+      /* !important: sidan (Wagtail-admin) har egna input-regler som annars
+         kan vinna över dessa och göra fältet oläsligt i ljust läge. */
+      background: var(--vd-bg2) !important;
+      border: 1px solid var(--vd-line);
+      color: var(--vd-txt) !important;
+      border-radius: 7px;
+      padding: 8px 10px;
+      font-size: 12.5px;
+      font-family: inherit;
+      /* Alltid "light": vi sätter redan bakgrund/text själva för båda
+         teman, så detta bara hindrar webbläsarens EGEN mörkt-läge-styling
+         (t.ex. OS i mörkt läge) från att krocka med våra egna färger. */
+      color-scheme: light;
+    }
+    .sb-key:focus {
+      outline: none;
+      border-color: var(--vd-accent);
+    }
+    .sb-check {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--vd-txt);
+      cursor: pointer;
+      margin-bottom: 11px;
+    }
+    .sb-check input {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--vd-accent);
+      cursor: pointer;
+      margin: 0;
+      flex-shrink: 0;
+      flex: none;
+      display: grid;
+      place-content: center;
+      appearance: none;
+      -webkit-appearance: none;
+      border: 1.5px solid var(--vd-line);
+      border-radius: 4px;
+      background: var(--vd-bg2);
+    }
+    .sb-check input::before {
+      content: '';
+      width: 10px;
+      height: 10px;
+      transform: scale(0);
+      transition: transform .08s;
+      clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+      background: var(--vd-accent);
+    }
+    .sb-check input:checked::before {
+      transform: scale(1);
+    }
+    .sb-check input:checked {
+      border-color: var(--vd-accent);
+    }
+    .sb-toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--vd-txt);
+      margin-bottom: 16px;
+    }
+    .sb-toggle {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      width: 38px;
+      height: 22px;
+      flex-shrink: 0;
+      cursor: pointer;
+    }
+    .sb-toggle input {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      margin: 0;
+      cursor: pointer;
+    }
+    .sb-toggle-track {
+      position: absolute;
+      inset: 0;
+      background: var(--vd-line);
+      border-radius: 999px;
+      transition: background .15s;
+    }
+    .sb-toggle-track::before {
+      content: '';
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 16px;
+      height: 16px;
+      background: #fff;
+      border-radius: 50%;
+      box-shadow: 0 1px 3px rgba(0,0,0,.35);
+      transition: transform .15s;
+    }
+    .sb-toggle input:checked ~ .sb-toggle-track {
+      background: var(--vd-accent);
+    }
+    .sb-toggle input:checked ~ .sb-toggle-track::before {
+      transform: translateX(16px);
+    }
+    .sb-langrow {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .sb-langrow button {
+      flex: 1;
+      background: var(--vd-accent);
+      color: #0d1520;
+      border: none;
+      border-radius: 7px;
+      padding: 11px 6px;
+      font-size: 13px;
+      font-weight: 650;
+      cursor: pointer;
+    }
+    .sb-langrow button:hover:not(:disabled) {
+      filter: brightness(1.1);
+    }
+    .sb-langrow button:disabled {
+      background: var(--vd-line);
+      color: var(--vd-txt3);
+      cursor: not-allowed;
+    }
+    .sb-status {
+      font-size: 11px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      padding: 8px 10px;
+      border-radius: 7px;
+      font-family: monospace;
+      display: none;
+      line-height: 1.5;
+    }
+    .sb-status.work {
+      color: #e0b060;
+      background: #2a2620;
+      border: 1px solid #4a4230;
+    }
+    .sb-status.ok {
+      color: #7ddca0;
+      background: #1f2f26;
+      border: 1px solid #2f5a42;
+    }
+    .sb-status.err {
+      color: #ff8080;
+      background: #3a1f1f;
+      border: 1px solid #6a2a2a;
+    }
+    .sb-whatson-section-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--vd-txt2);
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      margin: 14px 0 6px;
+    }
+    .sb-whatson-list {
+      max-height: 220px;
+      overflow-y: auto;
+      border: 1px solid var(--vd-line);
+      border-radius: 7px;
+      padding: 6px 8px;
+    }
+    .sb-whatson-item {
+      margin-bottom: 6px;
+      align-items: flex-start;
+    }
+    .sb-whatson-item span {
+      line-height: 1.4;
+    }
+    .sb-whatson-lang {
+      display: flex;
+      gap: 14px;
+      margin: 6px 0 2px;
+    }
+    .sb-whatson-guidegrid {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    .sb-whatson-guidecol {
+      flex: 1;
+      min-width: 0;
+    }
+    .sb-whatson-coltitle {
+      font-size: 11px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .sb-whatson-date {
+      color: var(--vd-txt3);
+      font-weight: 500;
+    }
+    #sb-logwrap {
+      display: none;
+      flex-direction: column;
+      border-top: 1px solid var(--vd-line);
+      max-height: 260px;
+      background: var(--vd-bg2);
+      flex-shrink: 0;
+    }
+    #sb-log {
+      overflow-y: auto;
+      flex: 1;
+      min-height: 0;
+      padding: 6px 11px 10px;
+      font-size: 11px;
+      line-height: 1.5;
+    }
+    .sb-loghdr {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 7px 11px;
+      font-size: 10.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      color: var(--vd-txt2);
+    }
+    .sb-loghdr span {
+      display: flex;
+      gap: 5px;
+    }
+    .sb-loghdr button {
+      background: rgba(255,255,255,.08);
+      border: none;
+      color: var(--vd-txt);
+      height: 20px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 11px;
+      padding: 0 6px;
+    }
+  `;
+
+  function injectStyle() {
+    if (!document.getElementById('sb-style')) {
+      const s = document.createElement('style');
+      s.id = 'sb-style';
+      s.textContent = PANEL_CSS;
+      document.head.appendChild(s);
+    }
+  }
+
+  function buildPanel() {
+    injectStyle();
+    const p = document.createElement('div');
+    p.id = 'sb-panel';
+    document.body.appendChild(p);
+    p.innerHTML = `
+      <div id="sb-head">
+        <div class="t">EditorBot${versionBadgeHTML()}</div>
+        <div id="sb-headbtns">
+          <button type="button" data-m="min" title="Minimera">▁</button>
+          <button type="button" data-m="max" title="Maximera">▢</button>
+          <span class="g"></span>
+          <button type="button" id="sb-mapbtn" title="Kartlägg fält">🔍</button>
+          <button type="button" id="sb-logbtn" title="Visa logg">📋</button>
+        </div>
+      </div>
+      <div id="sb-tabbar">
+        <button type="button" class="sb-tab-btn active" data-tab="main">EditorBot</button>
+        <button type="button" class="sb-tab-btn" data-tab="whatson">WHAT'S ON</button>
+        <button type="button" class="sb-tab-btn" data-tab="settings" title="Inställningar">⚙️</button>
+      </div>
+      <div id="sb-scroll">
+        <div class="sb-tab-panel active" data-tab-panel="main">
+          <div class="sb-row"><label>Sida-URL</label><input type="text" id="sb-url" class="sb-key" placeholder="https://…" autocomplete="off" spellcheck="false"></div>
+          <div class="sb-langrow">
+            <button type="button" id="sb-btn-sv">🇸🇪 Svenska</button>
+            <button type="button" id="sb-btn-en">🇺🇸 English</button>
+          </div>
+          <div class="sb-row"><label>Översätt sidans fält</label></div>
+          <div class="sb-langrow">
+            <button type="button" id="sb-btn-translate-sv" title="Skriver över sidans egna textfält med en svensk översättning">🇸🇪 → Svenska</button>
+            <button type="button" id="sb-btn-translate-en" title="Skriver över sidans egna textfält med en amerikansk-engelsk översättning">🇺🇸 → English (US)</button>
+          </div>
+          <div class="sb-status" id="sb-status"></div>
+        </div>
+        <div class="sb-tab-panel" data-tab-panel="whatson">
+          <div class="sb-row"><label>Period (startmånad)</label><select id="sb-whatson-month" class="sb-key"></select></div>
+          <div class="sb-whatson-lang">
+            <label class="sb-check"><input type="checkbox" id="sb-whatson-lang-sv" checked><span>🇸🇪 Svenska</span></label>
+            <label class="sb-check"><input type="checkbox" id="sb-whatson-lang-en"><span>🇺🇸 English</span></label>
+          </div>
+          <div class="sb-langrow">
+            <button type="button" id="sb-whatson-fetch">Hämta event</button>
+          </div>
+          <div class="sb-status" id="sb-whatson-status"></div>
+          <div id="sb-whatson-checklist"></div>
+          <div id="sb-whatson-guides"></div>
+          <div class="sb-langrow">
+            <button type="button" id="sb-whatson-write" title="Skriver de ikryssade eventen/guiden till sidans befintliga block — sparar INTE automatiskt">Skriv till sidan</button>
+          </div>
+        </div>
+        <div class="sb-tab-panel" data-tab-panel="settings">
+          <label class="sb-toggle-row">
+            <span>🌙 Mörkt läge</span>
+            <span class="sb-toggle">
+              <input type="checkbox" id="sb-darkmode">
+              <span class="sb-toggle-track"></span>
+            </span>
+          </label>
+          <div class="sb-row"><label>Mistral API-nyckel</label><input type="text" id="sb-mkey" class="sb-key" placeholder="Mistral Bearer-nyckel" autocomplete="off" spellcheck="false"></div>
+          <div class="sb-row"><label>Mistral agent-ID</label><input type="text" id="sb-magent" class="sb-key" placeholder="ag_..." autocomplete="off" spellcheck="false"></div>
+          <div class="sb-row"><label>What's On agent-ID</label><input type="text" id="sb-magent-whatson" class="sb-key" placeholder="ag_..." autocomplete="off" spellcheck="false"></div>
+          <div class="sb-row"><label>Kalender-API (valfritt override)</label><input type="text" id="sb-calendar-api" class="sb-key" placeholder="Lämnas tomt för standard-URL" autocomplete="off" spellcheck="false"></div>
+          <div class="sb-setfieldbtns">
+            <button type="button" id="sb-export-fields">⬇ Exportera fält</button>
+            <button type="button" id="sb-import-pick">📂 Välj fil…</button>
+          </div>
+          <div class="sb-dropzone" id="sb-import-drop" title="Släpp en exportfil här">
+            📥 Dra och släpp en exportfil här för att fylla i alla fält
+            <input type="file" id="sb-import-file" accept=".json,application/json">
+          </div>
+        </div>
+      </div>
+      <div id="sb-logwrap"><div class="sb-loghdr">Logg <span><button type="button" id="sb-logjson">JSON</button><button type="button" id="sb-logcopy">📋</button><button type="button" id="sb-logclose">✕</button></span></div><div id="sb-log"></div></div>
+    `;
+
+    // Om inget agent-ID sparats sedan tidigare, skriv standardagenten till
+    // lagringen direkt (inte bara till fältets visade värde) — annars visar
+    // fältet rätt ID men GM_getValue('sidbot_magent') förblir tom tills
+    // användaren råkar ändra och lämna fältet, vilket gjorde att "Fyll i
+    // API-nyckel och agent-ID först" kunde visas trots ett synligt värde.
+    if (!GM_getValue('sidbot_magent', '').trim()) GM_setValue('sidbot_magent', DEFAULT_MISTRAL_AGENT_ID);
+
+    $('sb-mkey').value = GM_getValue('sidbot_mkey', '');
+    $('sb-magent').value = GM_getValue('sidbot_magent', DEFAULT_MISTRAL_AGENT_ID);
+    $('sb-mkey').addEventListener('change', () => { GM_setValue('sidbot_mkey', $('sb-mkey').value.trim()); backupSettingsToLS(); });
+    $('sb-magent').addEventListener('change', () => { GM_setValue('sidbot_magent', $('sb-magent').value.trim()); backupSettingsToLS(); });
+
+    // What's On-fliken: eget agent-ID (skilt från objectpage-agenten ovan)
+    // och en valfri override för kalender-API:ets bas-URL (annars används
+    // standard-endpointen för aktuell domän, se buildWhatsOnMonthOptions).
+    $('sb-magent-whatson').value = GM_getValue('sidbot_magent_whatson', '');
+    $('sb-calendar-api').value = GM_getValue('sidbot_calendar_api', '');
+    $('sb-magent-whatson').addEventListener('change', () => { GM_setValue('sidbot_magent_whatson', $('sb-magent-whatson').value.trim()); backupSettingsToLS(); });
+    $('sb-calendar-api').addEventListener('change', () => { GM_setValue('sidbot_calendar_api', $('sb-calendar-api').value.trim()); backupSettingsToLS(); });
+    // ---- Export/Import av inställningsfält ----
+    // Samma nycklar som fälten ovan. Exporten är en platt JSON-fil som kan
+    // delas (innehåller API-nycklar — hantera därför filen som en hemlighet).
+    const SETTINGS_FIELD_MAP = {
+      sidbot_mkey:           { label: 'Mistral API-nyckel',   id: 'sb-mkey' },
+      sidbot_magent:         { label: 'Mistral agent-ID',    id: 'sb-magent' },
+      sidbot_magent_whatson: { label: "What's On agent-ID", id: 'sb-magent-whatson' },
+      sidbot_calendar_api:   { label: 'Kalender-API',        id: 'sb-calendar-api' }
+    };
+    // Värdena backas också upp till localStorage och hydreras tillbaka om
+    // GM-lagringen är tom (t.ex. efter en script-uppdatering), så fälten
+    // aldrig står tomma. Same-origin som CMS-domänen.
+    const LS_KEY = 'editorbot_settings_backup_v1';
+    function backupSettingsToLS() {
+      try {
+        const data = {};
+        Object.keys(SETTINGS_FIELD_MAP).forEach(k => { data[k] = GM_getValue(k, ''); });
+        localStorage.setItem(LS_KEY, JSON.stringify(data));
+      } catch {}
+    }
+    function restoreSettingsFromLS() {
+      try {
+        const raw = localStorage.getItem(LS_KEY);
+        if (!raw) return false;
+        const obj = JSON.parse(raw);
+        let restored = 0;
+        Object.keys(SETTINGS_FIELD_MAP).forEach(k => {
+          if (!GM_getValue(k, '').trim() && typeof obj[k] === 'string' && obj[k].trim()) {
+            GM_setValue(k, obj[k].trim());
+            restored++;
+          }
+        });
+        return restored > 0;
+      } catch { return false; }
+    }
+    // Säkerhetskopiera + hydratera vid varje panelbygge, och backa upp på
+    // nytt efter varje ändring/import så säkerhetskopian alltid är aktuell.
+    restoreSettingsFromLS();
+    backupSettingsToLS();
+    function exportSettingsFile() {
+      const data = {};
+      Object.keys(SETTINGS_FIELD_MAP).forEach(k => { data[k] = GM_getValue(k, ''); });
+      const blob = new Blob([JSON.stringify(data, null, 2) + '\n'], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'editorbot-settings.json';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      vlog('Inställningar exporterade (editorbot-settings.json).', 'ok');
+    }
+    function importSettingsText(text) {
+      let obj;
+      try { obj = JSON.parse(text); } catch { vlog('Import: filen är inte giltig JSON.', 'err'); return; }
+      let count = 0;
+      Object.keys(SETTINGS_FIELD_MAP).forEach(k => {
+        if (!(k in obj)) return;
+        const val = String(obj[k] == null ? '' : obj[k]).trim();
+        GM_setValue(k, val);
+        const el = $(SETTINGS_FIELD_MAP[k].id);
+        if (el) el.value = val;
+        count++;
+      });
+      backupSettingsToLS();
+      vlog('Import: ' + count + ' fält inlästa (' +
+           Object.keys(SETTINGS_FIELD_MAP).filter(k => k in obj).map(k => SETTINGS_FIELD_MAP[k].label).join(', ') + ').', 'ok');
+    }
+    function importSettingsFile(file) {
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => importSettingsText(String(reader.result));
+      reader.onerror = () => vlog('Import: kunde inte läsa filen.', 'err');
+      reader.readAsText(file);
+    }
+    $('sb-export-fields').addEventListener('click', exportSettingsFile);
+    const dropzone = $('sb-import-drop');
+    $('sb-import-pick').addEventListener('click', () => $('sb-import-file').click());
+    $('sb-import-file').addEventListener('change', e => { importSettingsFile(e.target.files[0]); e.target.value = ''; });
+    ['dragenter', 'dragover'].forEach(ev => dropzone.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); dropzone.classList.add('hover'); }));
+    ['dragleave', 'drop'].forEach(ev => dropzone.addEventListener(ev, e => { e.preventDefault(); e.stopPropagation(); dropzone.classList.remove('hover'); }));
+    dropzone.addEventListener('drop', e => {
+      const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (file && !/\.json$/i.test(file.name) && file.type !== 'application/json') {
+        vlog('Import: förväntade en .json-fil, fick "' + file.name + '".', 'err');
+        return;
+      }
+      importSettingsFile(file);
+    });
+
+    populateWhatsOnMonthDropdown($('sb-whatson-month'));
+    // Språkval i WHAT'S ON-fliken: ömsesidigt uteslutande (radiobeteende på
+    // kryssrutor, som Aron ville) — Svenska förvald. Valet styr agentens
+    // språk, guidernas titelspråk och månadsnamnen, och sparas per nyckel.
+    const langSv = $('sb-whatson-lang-sv'), langEn = $('sb-whatson-lang-en');
+    langSv.checked = getWhatsOnLang() === 'sv';
+    langEn.checked = getWhatsOnLang() === 'en';
+    langSv.addEventListener('change', () => {
+      if (langSv.checked) langEn.checked = false; else langSv.checked = true;
+      setWhatsOnLang('sv');
+      populateWhatsOnMonthDropdown($('sb-whatson-month'));
+      vlog("WHAT'S ON: språk satt till Svenska.");
+    });
+    langEn.addEventListener('change', () => {
+      if (langEn.checked) langSv.checked = false; else langEn.checked = true;
+      setWhatsOnLang('en');
+      populateWhatsOnMonthDropdown($('sb-whatson-month'));
+      vlog("WHAT'S ON: språk satt till English.");
+    });
+    $('sb-whatson-fetch').addEventListener('click', handleWhatsOnFetch);
+    $('sb-whatson-write').addEventListener('click', handleWhatsOnWrite);
+
+    $('sb-darkmode').checked = getStoredTheme() === 'dark';
+    $('sb-darkmode').addEventListener('change', () => {
+      const theme = $('sb-darkmode').checked ? 'dark' : 'light';
+      GM_setValue(THEME_KEY, theme);
+      applyTheme(theme);
+      vlog('Tema ändrat till ' + (theme === 'dark' ? 'mörkt' : 'ljust') + ' läge', 'ok');
+    });
+
+    document.querySelectorAll('.sb-tab-btn').forEach(btn => btn.addEventListener('click', () => {
+      document.querySelectorAll('.sb-tab-btn').forEach(b => b.classList.toggle('active', b === btn));
+      document.querySelectorAll('.sb-tab-panel').forEach(p => p.classList.toggle('active', p.dataset.tabPanel === btn.dataset.tab));
+    }));
+
+    document.querySelectorAll('#sb-headbtns button[data-m]').forEach(b => b.addEventListener('click', () => {
+      const panel = $('sb-panel');
+      if (panel) panel.className = b.dataset.m;
+      document.querySelectorAll('#sb-headbtns button[data-m]').forEach(btn => btn.classList.toggle('on', btn.dataset.m === b.dataset.m));
+      GM_setValue('sidbot_window_mode', b.dataset.m);
+    }));
+
+    $('sb-logbtn').addEventListener('click', () => { const w = $('sb-logwrap'); w.style.display = (w.style.display === 'none' ? 'flex' : 'none'); renderLog(); });
+    $('sb-logclose').addEventListener('click', () => { $('sb-logwrap').style.display = 'none'; });
+
+    $('sb-logcopy').addEventListener('click', async () => {
+      const btn = $('sb-logcopy');
+      const text = VLOG.map(e => e.line).join('\n');
+      try { await navigator.clipboard.writeText(text); btn.textContent = '✓'; setTimeout(() => btn.textContent = '📋', 1200); }
+      catch { btn.textContent = '✗'; setTimeout(() => btn.textContent = '📋', 1200); }
+    });
+
+    $('sb-logjson').addEventListener('click', async () => {
+      const btn = $('sb-logjson');
+      if (!lastData) { btn.textContent = 'Inget'; setTimeout(() => btn.textContent = 'JSON', 1200); return; }
+      try { await navigator.clipboard.writeText(JSON.stringify(lastData, null, 2)); btn.textContent = '✓'; setTimeout(() => btn.textContent = 'JSON', 1200); }
+      catch { btn.textContent = '✗'; setTimeout(() => btn.textContent = 'JSON', 1200); }
+    });
+
+    $('sb-mapbtn').addEventListener('click', () => {
+      vlog('🔍 Kartlägger fält...');
+      [...document.querySelectorAll('.DraftEditor-root')].forEach((root, i) => {
+        const wrapper = root.closest('.w-field, .w-panel, [data-field]') || root.parentElement;
+        const hidden = wrapper?.querySelector('input[type="hidden"], textarea');
+        const label = wrapper?.querySelector('label')?.textContent?.trim() || '';
+        vlog('  ' + (i+1) + ': id="' + (hidden?.id || '-') + '" label="' + label + '"');
+      });
+    });
+
+    async function createSidePage(lang) {
+      if (busy) return;
+      const url = ($('sb-url').value || '').trim();
+      // Läs direkt från fälten (inte GM_getValue) — annars missas ett
+      // värde som användaren just skrivit in men inte lämnat fältet (blur)
+      // för, eftersom det är 'change'-eventet som sparar till lagringen.
+      const apiKey = ($('sb-mkey').value || '').trim();
+      const agentId = ($('sb-magent').value || '').trim();
+      GM_setValue('sidbot_mkey', apiKey);
+      GM_setValue('sidbot_magent', agentId);
+
+      if (!apiKey || !agentId) { setStatus('Fyll i API-nyckel och agent-ID först.', 'err'); return; }
+      if (!url || !/^https?:\/\//i.test(url)) { setStatus('Ogiltig URL.', 'err'); return; }
+
+      busy = true;
+      $('sb-btn-sv').disabled = true;
+      $('sb-btn-en').disabled = true;
+      setStatus('Skickar till Mistral...', 'work');
+
+      // Restaurang-kryssrutan är borttagen (booking_link används inte
+      // längre) — is_restaurant skickas ändå som "false" eftersom agentens
+      // egen systemprompt fortfarande förväntar sig fältet för att avgöra
+      // om booking_link/booking_link_text ska fyllas i (aldrig, nu).
+      const agentInput = 'URL: ' + url + '\nSPRÅK: ' + lang + '\nis_restaurant: false';
+
+      try {
+        let data = await callMistralAgentForJSON(apiKey, agentId, agentInput, 'original');
+
+        // Blocklist-kontroll: max 2 iterationer totalt (originalsvaret +
+        // högst en omskrivning). Om förbjudna ord/fraser kvarstår efter
+        // omskrivningen accepteras svaret INTE — objektet flaggas för
+        // manuell granskning istället för att fälten fylls i.
+        let hits = checkBlocklist(data);
+        let iteration = 1;
+        while (hits.length > 0 && iteration < 2) {
+          iteration++;
+          vlog('Blocklist-kontroll: träff i försök ' + (iteration - 1) + ' — ' +
+            hits.map(h => h.field + ': "' + h.match + '"').join(', '), 'warn');
+          setStatus('Förbjudna ord hittade, ber agenten skriva om (försök ' + iteration + '/2)...', 'work');
+
+          data = await callMistralAgentForJSON(apiKey, agentId, buildBlocklistRetryMessage(data, hits), 'omskrivning ' + iteration);
+          hits = checkBlocklist(data);
+        }
+
+        if (hits.length > 0) {
+          lastData = data;
+          vlog('Blocklist-kontroll: träffar kvarstår efter ' + iteration + ' försök, flaggar för manuell granskning — ' +
+            hits.map(h => h.field + ': "' + h.match + '"').join(', '), 'err');
+          setStatus('❌ Flaggat för manuell granskning (förbjudna ord kvarstår)', 'err');
+          return;
+        }
+
+        lastData = data;
+
+        // Om agenten inte gav någon titel har den sannolikt inte kunnat
+        // hämta/tolka sidan (notes brukar då förklara varför, t.ex.
+        // "not_applicable", "could_not_fetch_url"). Utan detta visade
+        // scriptet "Klar!" även när ALLA fält var tomma — det enda som
+        // faktiskt syntes ifyllt var URL-fältet, som användaren skrivit
+        // in själv och som scriptet aldrig rör.
+        if (!data.title || !String(data.title).trim()) {
+          const reason = data.notes && String(data.notes).trim() ? 'notes: "' + data.notes + '"' : 'inget titel-fält i svaret';
+          vlog('Agenten gav ingen titel — fyller INTE i formuläret (' + reason + ').', 'err');
+          setStatus('❌ Agenten gav ingen användbar data (' + reason + ')', 'err');
+          return;
+        }
+        if (data.notes && String(data.notes).trim()) {
+          vlog('OBS — agentens notes-fält: "' + data.notes + '". Dubbelkolla fälten extra noga.', 'warn');
+        }
+
+        const PLAIN_FIELDS = [
+          ['title','id_title'],
+          ['street_address','id_street_address'],
+          ['zip_code','id_zip_code'],
+          ['city','id_city'],
+          ['phone','id_phone'],
+          ['email','id_email'],
+          ['external_link','id_external_link'],
+          ['external_link_text','id_external_link_text'],
+          ['related_events_title','id_related_events_title'],
+          ['slug','id_slug'],
+          ['seo_title','id_seo_title'],
+          ['search_description','id_search_description'],
+          ['og_title','id_og_title'],
+          ['og_description','id_og_description'],
+          ['twitter_title','id_twitter_title'],
+          ['twitter_description','id_twitter_description'],
+          ['canonical_link','id_canonical_link'],
+          ['list_title','id_list_title'],
+          ['go_live_at','id_go_live_at'],
+          ['expire_at','id_expire_at']
+        ];
+        for (const [key, id] of PLAIN_FIELDS) if (data[key]) simulateInput($(id), data[key]);
+
+        // Kryssrutor sätts explicit (även till false/av) om agenten anger dem,
+        // till skillnad från textfälten ovan som bara skrivs om ett värde finns.
+        const CHECKBOX_FIELDS = [
+          ['robot_noindex','id_robot_noindex'],
+          ['robot_nofollow','id_robot_nofollow'],
+          ['show_in_menus','id_show_in_menus'],
+          ['show_mega_menu','id_show_mega_menu']
+        ];
+        for (const [key, id] of CHECKBOX_FIELDS) if (Object.prototype.hasOwnProperty.call(data, key)) simulateInput($(id), data[key]);
+
+        // rich_text/extra_info_text är Draftail-fält (React/Draft.js), inte
+        // vanliga textfält — deras dolda <input> innehåller Draft.js egen
+        // JSON-serialisering, inte klartext. simulateInput skrev tidigare en
+        // vanlig sträng dit, vilket bara ändrade det dolda fältet utan att
+        // den SYNLIGA editorn någonsin visade texten (sidan såg tom ut trots
+        // att agenten gav en bra beskrivning). updateDraftail() går via
+        // Draft.js egna React-props och uppdaterar editorn korrekt.
+        if (data.rich_text) {
+          const ok = await updateDraftail('id_rich_text', data.rich_text);
+          vlog(ok ? 'Rich text ifyllt (' + data.rich_text.length + ' tecken).' : 'Rich text: kunde inte fyllas i, se felet ovan.', ok ? 'ok' : 'err');
+        }
+        const extraInfo = data.extra_info_text || data.extra_info;
+        if (extraInfo) {
+          const ok = await updateDraftail('id_extra_info_text', extraInfo);
+          vlog(ok ? 'Extra info ifylld (' + extraInfo.length + ' tecken).' : 'Extra info: kunde inte fyllas i, se felet ovan.', ok ? 'ok' : 'err');
+        }
+        setStatus('Klar!', 'ok');
+      } catch (e) { setStatus(e.message, 'err'); } finally { busy = false; $('sb-btn-sv').disabled = false; $('sb-btn-en').disabled = false; }
+    }
+
+    // Översätter sidans EGNA fält i-place (skriver över samma fält som
+    // AI-skapandet fyller i ovan) — rör aldrig adress/kontakt/URL:er/slug/
+    // datum/kryssrutor, se TRANSLATABLE_FIELDS. Körs oberoende av hur
+    // fälten fick sitt nuvarande innehåll (AI-skapande eller manuell
+    // redigering), och kan köras när som helst medan sidan är öppen.
+    async function translatePage(targetLang) {
+      if (busy) return;
+      const apiKey = ($('sb-mkey').value || '').trim();
+      if (!apiKey) { setStatus('Fyll i API-nyckel först (⚙️-fliken).', 'err'); return; }
+
+      busy = true;
+      $('sb-btn-sv').disabled = true;
+      $('sb-btn-en').disabled = true;
+      $('sb-btn-translate-sv').disabled = true;
+      $('sb-btn-translate-en').disabled = true;
+
+      const langName = TRANSLATE_LANG_NAME[targetLang];
+
+      try {
+        const source = readTranslatableFields();
+        const nonEmptyKeys = Object.keys(source).filter(k => source[k]);
+        if (nonEmptyKeys.length === 0) {
+          setStatus('Inga ifyllda textfält att översätta.', 'err');
+          return;
+        }
+        vlog('Översättning → ' + langName + ': läser ' + nonEmptyKeys.length + ' fält: ' + nonEmptyKeys.join(', '));
+        setStatus('Skickar till Mistral (' + langName + ')...', 'work');
+
+        let translated = await callTranslatorForJSON(apiKey, targetLang, JSON.stringify(source));
+
+        // Samma blocklist-kontroll/omskrivnings-slinga som AI-skapandet:
+        // max 2 iterationer totalt, acceptera ALDRIG ett svar med kvarstående
+        // förbjudna ord/fraser — en "naturligt klandrande" översättning kan
+        // annars smyga in klichéer som inte fanns i källtexten.
+        let hits = checkBlocklist(translated);
+        let iteration = 1;
+        while (hits.length > 0 && iteration < 2) {
+          iteration++;
+          vlog('Översättning: blocklist-träff i försök ' + (iteration - 1) + ' — ' +
+            hits.map(h => h.field + ': "' + h.match + '"').join(', '), 'warn');
+          setStatus('Förbjudna ord i översättningen, försöker igen (' + iteration + '/2)...', 'work');
+          translated = await callTranslatorForJSON(apiKey, targetLang, buildBlocklistRetryMessage(translated, hits));
+          hits = checkBlocklist(translated);
+        }
+
+        if (hits.length > 0) {
+          vlog('Översättning: blocklist-träffar kvarstår efter ' + iteration + ' försök — fälten lämnas ORÖRDA: ' +
+            hits.map(h => h.field + ': "' + h.match + '"').join(', '), 'err');
+          setStatus('❌ Osäker översättning (förbjudna ord kvarstår) — fälten orörda', 'err');
+          return;
+        }
+
+        const written = await writeTranslatableFields(translated);
+        vlog('Översättning klar (' + langName + '). Uppdaterade ' + written + ' fält.', 'ok');
+        setStatus('✅ Översatt till ' + langName + ' (' + written + ' fält)', 'ok');
+      } catch (e) {
+        vlog('Översättning: fel — ' + e.message, 'err');
+        setStatus('❌ ' + e.message, 'err');
+      } finally {
+        busy = false;
+        $('sb-btn-sv').disabled = false;
+        $('sb-btn-en').disabled = false;
+        $('sb-btn-translate-sv').disabled = false;
+        $('sb-btn-translate-en').disabled = false;
+      }
+    }
+
+    $('sb-btn-sv').addEventListener('click', () => createSidePage('sv'));
+    $('sb-btn-en').addEventListener('click', () => createSidePage('en'));
+    $('sb-btn-translate-sv').addEventListener('click', () => translatePage('sv'));
+    $('sb-btn-translate-en').addEventListener('click', () => translatePage('en'));
+
+    function setStatus(msg, kind) {
+      const s = document.getElementById('sb-status');
+      if (s) {
+        s.textContent = msg;
+        s.className = 'sb-status ' + (kind || 'work');
+        s.style.display = 'block';
+      }
+    }
+
+    let mode = GM_getValue('sidbot_window_mode', 'min');
+    if (!['min', 'max'].includes(mode)) mode = 'min';
+    document.querySelectorAll('#sb-headbtns button[data-m]').forEach(b => b.classList.toggle('on', b.dataset.m === mode));
+    vlog('EditorBot v' + SCRIPT_VERSION + ' startad');
+  }
+
+  // ===== INIT =====
+  // Temat appliceras innan bar/panel byggs, oavsett vilken av dem sidan
+  // visar, så samma mörkt/ljust-val gäller överallt.
+  injectThemeOverrideStyle();
+  applyTheme(getStoredTheme());
+
+  // "Synka utvalda event"-listen ska ENDAST visas på de 4 kända
+  // landningssidorna (Start SE/EN, S&G, S&D) — dvs. exakt sidans ID matchar
+  // EP_PAGE_MAPPING, inte "vilken edit-sida som helst" och inte en
+  // delsträngsträff mot ett annat sid-ID (se epPageIdFromPath).
+  const epPageId = epPageIdFromPath(location.pathname);
+  const isEventPortalPage = epPageId !== null && Object.values(EP_PAGE_MAPPING).includes(epPageId);
+  if (isEventPortalPage) {
+    buildEventportorBar();
+  } else {
+    buildPanel();
+  }
+  // Toppraden i bildvyn behövs på ALLA sidor — bilduppladdningsmodalen
+  // kan öppnas var som helst i CMS:et.
+  buildImageHandlingBar();
+})();
