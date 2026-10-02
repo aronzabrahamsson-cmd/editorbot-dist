@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      4.25
+// @version      4.26
 // @description  v4.23: Fixat "Skriv till sidan" som inte gjorde något — orsaken var att kategori→sektion-mappningen (WHAT'S ON) bara kände till engelska slugs, medan API:et på .se-domänen faktiskt returnerar lokaliserade SVENSKA kategorietiketter ("musik", "scen & film", "utställningar"), bekräftat via en riktig körning där ALLA 228 event hamnade i "Övrigt" istället för Konserter/Scen & film/Museer. Lade till de svenska etiketterna i CATEGORY_TO_SECTION. Fixade även en "[object Object]"-bugg när ett kategorifält är ett objekt ({id,name}) istället för en sträng. v4.22: Steg 4 (första försöket) — "Skriv till sidan"-knappen skriver ikryssade event/guide till sidans befintliga fact_box/card_image_link-block via simulerad inklistring i Draftail, plus bildinfogning från befintlig bildbank. v4.21: Steg 3 — guide-förslag. v4.20: Steg 2 — hämtning/filtrering/kategorisering + checklista. v4.19: Steg 1 — flik, månadsväljare, inställningsfält. Äldre versioner: se git-historiken.
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
@@ -26,11 +26,12 @@
   const DEFAULT_MISTRAL_AGENT_ID = 'ag_01a00f03d056722bb5310f4738447535';
   const THEME_KEY = 'sidbot_theme';
 
-  // Enda källan till versionsnumret — matcha alltid mot @version-headern
-  // överst i filen. Används i loggens startrad och i versionsmärket i
-  // widgetarnas rubrik (mörkblå text/bakgrund, oberoende av tema, så man
-  // alltid kan se på skärmen exakt vilken version som körs).
-  const SCRIPT_VERSION = '4.23';
+  // Versionsnumret läses från GM_info (som hanteraren fyller från samma
+  // lagrade version som koden uppdaterades med — kan aldrig drifta från
+  // @version-headern). Reservkonstanten används bara om GM_info saknas.
+  // Används i loggens startrad och i versionsmärket i widgetarnas rubrik.
+  const SCRIPT_VERSION =
+    (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '4.26';
   function versionBadgeHTML() {
     return '<span style="display:inline-block;margin-left:8px;padding:1px 7px;' +
       'border-radius:5px;background:#dbe7ff;color:#0b3d91;font-size:11px;' +
