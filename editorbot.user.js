@@ -1,12 +1,14 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      4.28
+// @version      4.29
 // @description  v4.23: Fixat "Skriv till sidan" som inte gjorde något — orsaken var att kategori→sektion-mappningen (WHAT'S ON) bara kände till engelska slugs, medan API:et på .se-domänen faktiskt returnerar lokaliserade SVENSKA kategorietiketter ("musik", "scen & film", "utställningar"), bekräftat via en riktig körning där ALLA 228 event hamnade i "Övrigt" istället för Konserter/Scen & film/Museer. Lade till de svenska etiketterna i CATEGORY_TO_SECTION. Fixade även en "[object Object]"-bugg när ett kategorifält är ett objekt ({id,name}) istället för en sträng. v4.22: Steg 4 (första försöket) — "Skriv till sidan"-knappen skriver ikryssade event/guide till sidans befintliga fact_box/card_image_link-block via simulerad inklistring i Draftail, plus bildinfogning från befintlig bildbank. v4.21: Steg 3 — guide-förslag. v4.20: Steg 2 — hämtning/filtrering/kategorisering + checklista. v4.19: Steg 1 — flik, månadsväljare, inställningsfält. Äldre versioner: se git-historiken.
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.com/cms/pages/*/edit/*
 // @match        https://www.visitstockholm.se/cms/pages/*/edit/*
+// @match        https://www.visitstockholm.com/cms/images/*
+// @match        https://www.visitstockholm.se/cms/images/*
 // @updateURL    https://raw.githubusercontent.com/aronzabrahamsson-cmd/editorbot-dist/main/editorbot.user.js
 // @downloadURL  https://raw.githubusercontent.com/aronzabrahamsson-cmd/editorbot-dist/main/editorbot.user.js
 // @grant        GM_xmlhttpRequest
@@ -720,23 +722,25 @@
 
     let html = '';
     let any = false;
+    const section = (title, rowsHtml) =>
+      '<div class="sb-whatson-collapsible">' +
+      '<div class="sb-whatson-section-title">' +
+      '<span class="sb-whatson-arrow">&#9662;</span>' + title + '</div>' +
+      '<div class="sb-whatson-list">' + rowsHtml + '</div></div>';
+
     for (const g of groups) {
       if (!g.list.length) continue;
       any = true;
-      html += '<div class="sb-whatson-section-title">' + g.title + ' (' + g.list.length + ')</div>';
-      html += '<div class="sb-whatson-list">';
-      for (const { key, ev } of g.list) html += eventRow(key, ev, g.checked);
-      html += '</div>';
+      const rows = g.list.map(({ key, ev }) => eventRow(key, ev, g.checked)).join('');
+      html += section(g.title + ' (' + g.list.length + ')', rows);
     }
 
     for (const key of SECTION_ORDER) {
       const list = (sections[key] || []).filter(ev => !ev.isBig && !ev.isOpening);
       if (!list.length) continue;
       any = true;
-      html += '<div class="sb-whatson-section-title">' + esc(SECTION_LABELS[key]) + ' (' + list.length + ')</div>';
-      html += '<div class="sb-whatson-list">';
-      for (const ev of list) html += eventRow(key, ev, false);
-      html += '</div>';
+      const rows = list.map(ev => eventRow(key, ev, false)).join('');
+      html += section(esc(SECTION_LABELS[key]) + ' (' + list.length + ')', rows);
     }
     container.innerHTML = any ? html : '<div class="sb-status err" style="display:block;">Inga event hittades för vald period.</div>';
   }
@@ -2962,6 +2966,7 @@
       bottom: 18px;
       right: 18px;
       width: 300px;
+      max-height: calc(100vh - 36px);
     }
     #sb-panel.max {
       top: 18px;
@@ -3273,6 +3278,23 @@
       text-transform: uppercase;
       letter-spacing: .04em;
       margin: 14px 0 6px;
+      cursor: pointer;
+      user-select: none;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .sb-whatson-collapsible .sb-whatson-arrow {
+      display: inline-block;
+      transition: transform .15s ease;
+      font-size: 10px;
+      color: var(--vd-txt3);
+    }
+    .sb-whatson-collapsible.sb-collapsed .sb-whatson-arrow {
+      transform: rotate(-90deg);
+    }
+    .sb-whatson-collapsible.sb-collapsed .sb-whatson-list {
+      display: none;
     }
     .sb-whatson-list {
       max-height: 220px;
@@ -3846,4 +3868,16 @@
   // Toppraden i bildvyn behövs på ALLA sidor — bilduppladdningsmodalen
   // kan öppnas var som helst i CMS:et.
   buildImageHandlingBar();
+
+  // WHAT'S ON: klick på en sektionsrubrik fäller in/ut sektionens lista
+  // (delegerad lyssnare så den överlever att checklisten ritas om).
+  document.addEventListener('click', e => {
+    const title = e.target.closest('.sb-whatson-section-title');
+    if (title) {
+      const wrap = title.parentElement;
+      if (wrap && wrap.classList.contains('sb-whatson-collapsible')) {
+        wrap.classList.toggle('sb-collapsed');
+      }
+    }
+  });
 })();
