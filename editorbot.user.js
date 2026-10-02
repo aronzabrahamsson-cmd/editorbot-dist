@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      4.26
+// @version      4.27
 // @description  v4.23: Fixat "Skriv till sidan" som inte gjorde något — orsaken var att kategori→sektion-mappningen (WHAT'S ON) bara kände till engelska slugs, medan API:et på .se-domänen faktiskt returnerar lokaliserade SVENSKA kategorietiketter ("musik", "scen & film", "utställningar"), bekräftat via en riktig körning där ALLA 228 event hamnade i "Övrigt" istället för Konserter/Scen & film/Museer. Lade till de svenska etiketterna i CATEGORY_TO_SECTION. Fixade även en "[object Object]"-bugg när ett kategorifält är ett objekt ({id,name}) istället för en sträng. v4.22: Steg 4 (första försöket) — "Skriv till sidan"-knappen skriver ikryssade event/guide till sidans befintliga fact_box/card_image_link-block via simulerad inklistring i Draftail, plus bildinfogning från befintlig bildbank. v4.21: Steg 3 — guide-förslag. v4.20: Steg 2 — hämtning/filtrering/kategorisering + checklista. v4.19: Steg 1 — flik, månadsväljare, inställningsfält. Äldre versioner: se git-historiken.
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
@@ -138,7 +138,13 @@
           if (r.status < 200 || r.status >= 300) return reject(new Error('HTTP ' + r.status));
           try { resolve(JSON.parse(r.responseText)); } catch { reject(new Error('Ogiltig JSON')); }
         },
-        onerror: () => reject(new Error('Nätverksfel')),
+        onerror: e => {
+          const why = (e && e.error) ? ': ' + e.error : '';
+          vlog('Mistral-anrop via GM misslyckades' + why + ' — provar sid-fetch som reserv.', 'warn');
+          pageFetchText(url, { method: 'POST', headers: headers, body: JSON.stringify(body), timeout: 120000 })
+            .then(t => { try { resolve(JSON.parse(t)); } catch { reject(new Error('Ogiltig JSON (sid-fetch)')); } },
+                  fe => reject(new Error('Nätverksfel' + why + ' / sid-fetch: ' + fe.message)));
+        },
         ontimeout: () => reject(new Error('Timeout')), timeout: 120000
       });
     });
@@ -408,6 +414,21 @@
   // ANDRA domänen än den man står på, dels eftersom Biggest
   // Events/Opening Soon-sidorna nedan uttryckligen ska funka "oavsett
   // domän" (Arons ord), och GM_xmlhttpRequest kringgår CORS/SOP helt.
+  // Sidkontext-fetch som reserv när GM-bryggan är död (t.ex. SW som inte
+  // svarar). Funkar för same-origin och CORS-vänliga mål — kalender-
+  // API:et på samma domän är precis sådant. Felmeddelandet från
+  // GM-lagret loggas alltid, så den verkliga orsaken syns i loggen.
+  function pageFetchText(url, opts) {
+    return fetch(url, {
+      method: (opts && opts.method) || 'GET',
+      headers: (opts && opts.headers) || undefined,
+      body: (opts && opts.body) || undefined,
+      signal: AbortSignal.timeout((opts && opts.timeout) || 30000)
+    }).then(r => {
+      if (r.status < 200 || r.status >= 300) throw new Error('HTTP ' + r.status + ' (' + url + ')');
+      return r.text();
+    });
+  }
   function gmGet(url) {
     return new Promise((resolve, reject) => {
       GM_xmlhttpRequest({
@@ -416,8 +437,17 @@
           if (r.status < 200 || r.status >= 300) return reject(new Error('HTTP ' + r.status + ' (' + url + ')'));
           resolve(r.responseText);
         },
-        onerror: () => reject(new Error('Nätverksfel (' + url + ')')),
-        ontimeout: () => reject(new Error('Timeout (' + url + ')')), timeout: 30000
+        onerror: e => {
+          const why = (e && e.error) ? ': ' + e.error : '';
+          vlog('GM_xmlhttpRequest misslyckades' + why + ' — provar sid-fetch som reserv.', 'warn');
+          pageFetchText(url).then(resolve, fe =>
+            reject(new Error('Nätverksfel' + why + ' / sid-fetch: ' + fe.message + ' (' + url + ')')));
+        },
+        ontimeout: () => {
+          vlog('GM_xmlhttpRequest timeout — provar sid-fetch som reserv.', 'warn');
+          pageFetchText(url).then(resolve, fe =>
+            reject(new Error('Timeout / sid-fetch: ' + fe.message + ' (' + url + ')')));
+        }, timeout: 30000
       });
     });
   }
