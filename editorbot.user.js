@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      4.24
+// @version      4.25
 // @description  v4.23: Fixat "Skriv till sidan" som inte gjorde något — orsaken var att kategori→sektion-mappningen (WHAT'S ON) bara kände till engelska slugs, medan API:et på .se-domänen faktiskt returnerar lokaliserade SVENSKA kategorietiketter ("musik", "scen & film", "utställningar"), bekräftat via en riktig körning där ALLA 228 event hamnade i "Övrigt" istället för Konserter/Scen & film/Museer. Lade till de svenska etiketterna i CATEGORY_TO_SECTION. Fixade även en "[object Object]"-bugg när ett kategorifält är ett objekt ({id,name}) istället för en sträng. v4.22: Steg 4 (första försöket) — "Skriv till sidan"-knappen skriver ikryssade event/guide till sidans befintliga fact_box/card_image_link-block via simulerad inklistring i Draftail, plus bildinfogning från befintlig bildbank. v4.21: Steg 3 — guide-förslag. v4.20: Steg 2 — hämtning/filtrering/kategorisering + checklista. v4.19: Steg 1 — flik, månadsväljare, inställningsfält. Äldre versioner: se git-historiken.
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
@@ -974,6 +974,58 @@
   // Den tomma inledande <p> lämnar plats åt bilden som infogas separat
   // (insertImageAtDraftailStart) — se motiveringen ovan till varför bilden
   // inte bara skrivs med i samma HTML.
+  // ---- WHAT'S ON-AGENT: husstils-beskrivningar ----
+  // Skickar de ikryssade eventen (id, titel, datum, råbeskrivning, sektion,
+  // språk) till den dedikerade What's On-agenten och får tillbaka nyskrivna
+  // 1–2-meningars beskrivningar i husstil som strikt JSON. Misslyckas
+  // anropet (ingen nyckel/agent-ID, nätverksfel, ogiltigt svar) faller vi
+  // tillbaka på truncateDescription så flödet aldrig blockeras.
+  async function polishWhatsOnDescriptions(eventsBySection, lang) {
+    const apiKey = ($('sb-mkey').value || GM_getValue('sidbot_mkey', '')).trim();
+    const agentId = ($('sb-magent-whatson').value || GM_getValue('sidbot_magent_whatson', '')).trim();
+    if (!apiKey || !agentId) {
+      vlog("WHAT'S ON: ingen What's On-agent konfigurerad — använder API:ets råbeskrivningar (trunkerade).", 'warn');
+      return false;
+    }
+    const all = [];
+    for (const key of Object.keys(eventsBySection)) {
+      for (const ev of eventsBySection[key]) {
+        all.push({ id: String(ev.id), section: key, title: ev.title,
+                   start_date: ev.start_date, end_date: ev.end_date,
+                   url: ev.href, current_description: ev.description || '' });
+      }
+    }
+    if (!all.length) return false;
+    const payload = {
+      page_language: lang === 'sv' ? 'svenska' : 'engelska',
+      domain: isSwedishDomain() ? 'visitstockholm.se' : 'visitstockholm.com',
+      task: 'Skriv en beskrivning (1–2 meningar, 15–35 ord) per event i husstil på sidans språk. Behåll titlar och egennamn oförändrade. Fokusera på vad eventet är och varför det är värt att se — inga biljettpriser eller öppettider.',
+      events: all
+    };
+    const agentInput = 'WHATSON-DESC-BATCH\n' + JSON.stringify(payload, null, 2) +
+      '\nSvara ENBART med ett JSON-objekt på formen:' +
+      '\n{"descriptions": [{"id": "<samma id som input>", "description": "<nyskriven beskrivning>"}]}' +
+      '\nEtt objekt per input-event, samma id. Ingen extra text, inga kodblock.';
+    try {
+      setWhatsOnStatus('Agenten skriver beskrivningar (' + all.length + ' event)...', 'work');
+      vlog("WHAT'S ON: skickar " + all.length + " event till What's On-agenten (" + agentId + ').');
+      const data = await callMistralAgentForJSON(apiKey, agentId, agentInput, "what's on-beskrivningar");
+      const list = Array.isArray(data?.descriptions) ? data.descriptions : [];
+      let count = 0;
+      for (const item of list) {
+        if (!item || item.id == null || typeof item.description !== 'string' || !item.description.trim()) continue;
+        for (const key of Object.keys(eventsBySection)) {
+          const ev = eventsBySection[key].find(e => String(e.id) === String(item.id));
+          if (ev) { ev.description = item.description.trim(); ev._polished = true; count++; break; }
+        }
+      }
+      vlog("WHAT'S ON: " + count + '/' + all.length + ' beskrivningar mottagna från agenten.', count ? 'ok' : 'err');
+      return count > 0;
+    } catch (e) {
+      vlog("WHAT'S ON: agent-anrop misslyckades (" + e.message + ') — använder råbeskrivningar.', 'warn');
+      return false;
+    }
+  }
   function buildFactBoxSectionHtml(sectionKey, events, lang) {
     const meta = SECTION_CONTENT_META[sectionKey];
     const title = lang === 'sv' ? meta.titleSv : meta.titleEn;
@@ -984,7 +1036,7 @@
     let html = '<p><br></p><h2>' + esc(title) + '</h2><ul>';
     for (const ev of events) {
       const dateStr = formatEventDateRange(ev, lang);
-      const desc = ev.description ? ' – ' + esc(truncateDescription(ev.description, 160)) : '';
+      const desc = ev.description ? ' – ' + esc(ev._polished ? String(ev.description).replace(/\s+/g, ' ').trim() : truncateDescription(ev.description, 160)) : '';
       html += '<li><strong><a href="' + esc(ev.href) + '">' + esc(ev.title) + '</a></strong> ' +
         '<strong><em>' + esc(dateStr) + '</em></strong>' + desc + '</li>';
     }
@@ -1207,6 +1259,7 @@
     setWhatsOnStatus('Skriver till sidan...', 'work');
 
     try {
+      await polishWhatsOnDescriptions(eventsBySection, lang);
       const blocks = findExtendedRichTextBlocks();
       let written = 0;
 
