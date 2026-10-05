@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      4.29
+// @version      4.30
 // @description  v4.23: Fixat "Skriv till sidan" som inte gjorde något — orsaken var att kategori→sektion-mappningen (WHAT'S ON) bara kände till engelska slugs, medan API:et på .se-domänen faktiskt returnerar lokaliserade SVENSKA kategorietiketter ("musik", "scen & film", "utställningar"), bekräftat via en riktig körning där ALLA 228 event hamnade i "Övrigt" istället för Konserter/Scen & film/Museer. Lade till de svenska etiketterna i CATEGORY_TO_SECTION. Fixade även en "[object Object]"-bugg när ett kategorifält är ett objekt ({id,name}) istället för en sträng. v4.22: Steg 4 (första försöket) — "Skriv till sidan"-knappen skriver ikryssade event/guide till sidans befintliga fact_box/card_image_link-block via simulerad inklistring i Draftail, plus bildinfogning från befintlig bildbank. v4.21: Steg 3 — guide-förslag. v4.20: Steg 2 — hämtning/filtrering/kategorisering + checklista. v4.19: Steg 1 — flik, månadsväljare, inställningsfält. Äldre versioner: se git-historiken.
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
@@ -130,8 +130,16 @@
 
   // ===== HJÄLPFUNKTIONER =====
   function gmPost(url, headers, body) {
+    const pageFetchFallback = (why, resolve, reject) =>
+      pageFetchText(url, { method: 'POST', headers: headers, body: JSON.stringify(body), timeout: 120000 })
+        .then(t => { try { resolve(JSON.parse(t)); } catch { reject(new Error('Ogiltig JSON (sid-fetch)')); } },
+              fe => reject(new Error('Nätverksfel' + why + ' / sid-fetch: ' + fe.message)));
+    if (gmContextDead) {
+      return new Promise((resolve, reject) => pageFetchFallback('', resolve, reject));
+    }
     return new Promise((resolve, reject) => {
-      GM_xmlhttpRequest({
+      try {
+        GM_xmlhttpRequest({
         method: 'POST', url, headers, data: JSON.stringify(body),
         onload: r => {
           if (r.status === 401) return reject(new Error('Mistral: 401'));
@@ -142,13 +150,26 @@
         },
         onerror: e => {
           const why = (e && e.error) ? ': ' + e.error : '';
-          vlog('Mistral-anrop via GM misslyckades' + why + ' — provar sid-fetch som reserv.', 'warn');
-          pageFetchText(url, { method: 'POST', headers: headers, body: JSON.stringify(body), timeout: 120000 })
-            .then(t => { try { resolve(JSON.parse(t)); } catch { reject(new Error('Ogiltig JSON (sid-fetch)')); } },
-                  fe => reject(new Error('Nätverksfel' + why + ' / sid-fetch: ' + fe.message)));
+          if (/Extension context invalidated/i.test(String(e && e.error))) {
+            gmContextDead = true;
+            vlog('GM-kontexten är död (script uppdaterat/reloadat) — använder sid-fetch för resten av sessionen.', 'warn');
+          } else {
+            vlog('Mistral-anrop via GM misslyckades' + why + ' — provar sid-fetch som reserv.', 'warn');
+          }
+          pageFetchFallback(why, resolve, reject);
         },
         ontimeout: () => reject(new Error('Timeout')), timeout: 120000
-      });
+        });
+      } catch (err) {
+        const msg = String(err && err.message ? err.message : err);
+        if (/Extension context invalidated/i.test(msg)) {
+          gmContextDead = true;
+          vlog('GM-kontexten är död (script uppdaterat/reloadat) — använder sid-fetch för resten av sessionen.', 'warn');
+        } else {
+          vlog('GM_xmlhttpRequest kastade synkront (' + msg + ') — provar sid-fetch som reserv.', 'warn');
+        }
+        pageFetchFallback('', resolve, reject);
+      }
     });
   }
 
@@ -384,14 +405,13 @@
     return isSwedishDomain() ? DEFAULT_CALENDAR_API_SE : DEFAULT_CALENDAR_API_COM;
   }
 
-  // Månadsväljaren visar 12 månader framåt, med månaden 2 steg bort från
-  // dagens datum FÖRST (t.ex. idag september → november visas överst) —
+  // Månadsväljaren visar 14 månader framåt, med NÄSTA månad först —
   // det är den period man normalt förbereder näst.
   function buildWhatsOnMonthOptions() {
     const names = getWhatsOnLang() === 'sv' ? MONTH_NAMES_SV : MONTH_NAMES_EN;
     const now = new Date();
     const options = [];
-    for (let i = 2; i < 14; i++) {
+    for (let i = 1; i < 15; i++) {
       const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
       options.push({
         value: d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'),
@@ -431,9 +451,12 @@
       return r.text();
     });
   }
+  let gmContextDead = false;
   function gmGet(url) {
+    if (gmContextDead) return pageFetchText(url);
     return new Promise((resolve, reject) => {
-      GM_xmlhttpRequest({
+      try {
+        GM_xmlhttpRequest({
         method: 'GET', url,
         onload: r => {
           if (r.status < 200 || r.status >= 300) return reject(new Error('HTTP ' + r.status + ' (' + url + ')'));
@@ -441,7 +464,12 @@
         },
         onerror: e => {
           const why = (e && e.error) ? ': ' + e.error : '';
-          vlog('GM_xmlhttpRequest misslyckades' + why + ' — provar sid-fetch som reserv.', 'warn');
+          if (/Extension context invalidated/i.test(String(e && e.error))) {
+            gmContextDead = true;
+            vlog('GM-kontexten är död (script uppdaterat/reloadat) — använder sid-fetch för resten av sessionen.', 'warn');
+          } else {
+            vlog('GM_xmlhttpRequest misslyckades' + why + ' — provar sid-fetch som reserv.', 'warn');
+          }
           pageFetchText(url).then(resolve, fe =>
             reject(new Error('Nätverksfel' + why + ' / sid-fetch: ' + fe.message + ' (' + url + ')')));
         },
@@ -450,7 +478,17 @@
           pageFetchText(url).then(resolve, fe =>
             reject(new Error('Timeout / sid-fetch: ' + fe.message + ' (' + url + ')')));
         }, timeout: 30000
-      });
+        });
+      } catch (err) {
+        const msg = String(err && err.message ? err.message : err);
+        if (/Extension context invalidated/i.test(msg)) {
+          gmContextDead = true;
+          vlog('GM-kontexten är död (script uppdaterat/reloadat) — använder sid-fetch för resten av sessionen.', 'warn');
+          return pageFetchText(url).then(resolve, reject);
+        }
+        vlog('GM_xmlhttpRequest kastade synkront (' + msg + ') — provar sid-fetch som reserv.', 'warn');
+        pageFetchText(url).then(resolve, reject);
+      }
     });
   }
 
@@ -556,7 +594,7 @@
     museums: 'Museer & utställningar',
     other: 'Övrigt (okänd kategori)'
   };
-  const MAX_EVENTS_PER_SECTION = 10;
+  const MAX_EVENTS_PER_SECTION = 20;
 
   // De interna CMS-sidorna för "Biggest events"/"Opening soon"-guiderna.
   // Fungerar oavsett vilken domän man står på (bekräftat av Aron).
@@ -1846,7 +1884,7 @@
   }
 
   function getDraftProps(root) {
-    const instKey = Object.keys(root).find(k => k.startsWith('__reactInternalInstance$'));
+    const instKey = Object.keys(root).find(k => k.startsWith('__reactInternalInstance$') || k.startsWith('__reactFiber$'));
     let node = instKey ? root[instKey] : null;
     let hops = 0;
     while (node && hops < 30) {
@@ -1854,6 +1892,13 @@
       if (mp && mp.onChange && mp.editorState) return mp;
       node = node.return || node._debugOwner || null;
       hops++;
+    }
+    const propsKey = Object.keys(root).find(k => k.startsWith('__reactProps$'));
+    if (propsKey) {
+      const candidates = Object.keys(root).filter(k => k.startsWith('__reactProps$')).map(k => root[k]);
+      for (const p of candidates) {
+        if (p && p.onChange && p.editorState) return p;
+      }
     }
     return null;
   }
@@ -3385,7 +3430,35 @@
     }
   }
 
-  function buildPanel() {
+  // Inställningsvärdena backas också upp till localStorage och hydreras
+// tillbaka om GM-lagringen är tom (t.ex. efter en script-uppdatering),
+// så fälten aldrig står tomma. Toppnivå så de kan köras var som helst —
+// även på EventPortal-sidor där buildPanel() aldrig körs.
+const SETTINGS_KEYS = ['sidbot_mkey', 'sidbot_magent', 'sidbot_magent_whatson', 'sidbot_calendar_api'];
+const LS_KEY = 'editorbot_settings_backup_v1';
+function backupSettingsToLS() {
+  try {
+    const data = {};
+    SETTINGS_KEYS.forEach(k => { data[k] = GM_getValue(k, ''); });
+    localStorage.setItem(LS_KEY, JSON.stringify(data));
+  } catch {}
+}
+function restoreSettingsFromLS() {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return false;
+    const obj = JSON.parse(raw);
+    let restored = 0;
+    SETTINGS_KEYS.forEach(k => {
+      if (!GM_getValue(k, '').trim() && typeof obj[k] === 'string' && obj[k].trim()) {
+        GM_setValue(k, obj[k].trim());
+        restored++;
+      }
+    });
+    return restored > 0;
+  } catch { return false; }
+}
+function buildPanel() {
     injectStyle();
     const p = document.createElement('div');
     p.id = 'sb-panel';
@@ -3489,32 +3562,6 @@
       sidbot_magent_whatson: { label: "What's On agent-ID", id: 'sb-magent-whatson' },
       sidbot_calendar_api:   { label: 'Kalender-API',        id: 'sb-calendar-api' }
     };
-    // Värdena backas också upp till localStorage och hydreras tillbaka om
-    // GM-lagringen är tom (t.ex. efter en script-uppdatering), så fälten
-    // aldrig står tomma. Same-origin som CMS-domänen.
-    const LS_KEY = 'editorbot_settings_backup_v1';
-    function backupSettingsToLS() {
-      try {
-        const data = {};
-        Object.keys(SETTINGS_FIELD_MAP).forEach(k => { data[k] = GM_getValue(k, ''); });
-        localStorage.setItem(LS_KEY, JSON.stringify(data));
-      } catch {}
-    }
-    function restoreSettingsFromLS() {
-      try {
-        const raw = localStorage.getItem(LS_KEY);
-        if (!raw) return false;
-        const obj = JSON.parse(raw);
-        let restored = 0;
-        Object.keys(SETTINGS_FIELD_MAP).forEach(k => {
-          if (!GM_getValue(k, '').trim() && typeof obj[k] === 'string' && obj[k].trim()) {
-            GM_setValue(k, obj[k].trim());
-            restored++;
-          }
-        });
-        return restored > 0;
-      } catch { return false; }
-    }
     // Säkerhetskopiera + hydratera vid varje panelbygge, och backa upp på
     // nytt efter varje ändring/import så säkerhetskopian alltid är aktuell.
     restoreSettingsFromLS();
@@ -3853,6 +3900,10 @@
   // visar, så samma mörkt/ljust-val gäller överallt.
   injectThemeOverrideStyle();
   applyTheme(getStoredTheme());
+  // Hydrera GM-lagringen från localStorage-säkerhetskopian vid VARJE
+  // sidladdning, även på EventPortal-sidor där buildPanel() aldrig körs.
+  try { restoreSettingsFromLS(); } catch {}
+  try { backupSettingsToLS(); } catch {}
 
   // "Synka utvalda event"-listen ska ENDAST visas på de 4 kända
   // landningssidorna (Start SE/EN, S&G, S&D) — dvs. exakt sidans ID matchar
