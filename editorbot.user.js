@@ -1883,6 +1883,22 @@
     return root || null;
   }
 
+  function draftPropsDebugInfo(root, hops) {
+    try {
+      const keys = Object.keys(root);
+      const fiber = keys.filter(k => k.startsWith('__reactInternalInstance$') || k.startsWith('__reactFiber$'));
+      const rprops = keys.filter(k => k.startsWith('__reactProps$'));
+      const propsDetail = rprops.map(k => {
+        const p = root[k];
+        return k + '(' + (p ? ['onChange', 'editorState'].filter(f => p[f]).join('+') || 'varken onChange eller editorState' : 'null') + ')';
+      }).join(', ') || 'inga';
+      return 'root-nycklar: ' + keys.length +
+        ', fiber: ' + (fiber.join(', ') || 'INGA (__reactInternalInstance$/__reactFiber$)') +
+        ', hops vandrade: ' + hops +
+        ', __reactProps$: ' + propsDetail +
+        ', klass: ' + (root.className || root.nodeName);
+    } catch (e) { return 'debug-info misslyckades: ' + (e && e.message); }
+  }
   function getDraftProps(root) {
     const instKey = Object.keys(root).find(k => k.startsWith('__reactInternalInstance$') || k.startsWith('__reactFiber$'));
     let node = instKey ? root[instKey] : null;
@@ -1900,6 +1916,7 @@
         if (p && p.onChange && p.editorState) return p;
       }
     }
+    window.__sbDraftailDebug = draftPropsDebugInfo(root, hops);
     return null;
   }
 
@@ -1912,7 +1929,8 @@
       }
       const props = getDraftProps(root);
       if (!props) {
-        vlog('Draftail: hittade fältet ' + fieldId + ' men inte dess React-props — fältet lämnas orört.', 'err');
+        vlog('Draftail: hittade fältet ' + fieldId + ' men inte dess React-props — fältet lämnas orört. [' +
+             (window.__sbDraftailDebug || 'ingen debug-info') + ']', 'err');
         return false;
       }
       const editorState = props.editorState;
