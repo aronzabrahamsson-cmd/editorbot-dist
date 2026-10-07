@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      4.30
-// @description  v4.23: Fixat "Skriv till sidan" som inte gjorde något — orsaken var att kategori→sektion-mappningen (WHAT'S ON) bara kände till engelska slugs, medan API:et på .se-domänen faktiskt returnerar lokaliserade SVENSKA kategorietiketter ("musik", "scen & film", "utställningar"), bekräftat via en riktig körning där ALLA 228 event hamnade i "Övrigt" istället för Konserter/Scen & film/Museer. Lade till de svenska etiketterna i CATEGORY_TO_SECTION. Fixade även en "[object Object]"-bugg när ett kategorifält är ett objekt ({id,name}) istället för en sträng. v4.22: Steg 4 (första försöket) — "Skriv till sidan"-knappen skriver ikryssade event/guide till sidans befintliga fact_box/card_image_link-block via simulerad inklistring i Draftail, plus bildinfogning från befintlig bildbank. v4.21: Steg 3 — guide-förslag. v4.20: Steg 2 — hämtning/filtrering/kategorisering + checklista. v4.19: Steg 1 — flik, månadsväljare, inställningsfält. Äldre versioner: se git-historiken.
+// @version      4.31
+// @description  v4.31: Draftail-fält på vissa sid-sidor gick inte att fylla i — loggen visade "root-nycklar: 0", dvs. React sätter aldrig __reactFiber$/__reactProps$ på .DraftEditor-root där, så props-vandringen kan aldrig lyckas. När React-props saknas körs nu en paste-reserv (portrerad från EventBot v7.97.9): riktig paste-händelse → execCommand → dolt input-fält, en metod i taget med verifiering mot det dolda draft.js-fältet mellan varje steg. v4.30: inställningar överlever uppdatering, What's On fler event, GM-kontext-reserv, Draftail React 17+-props. v4.23: Fixat "Skriv till sidan" som inte gjorde något — orsaken var att kategori→sektion-mappningen (WHAT'S ON) bara kände till engelska slugs, medan API:et på .se-domänen faktiskt returnerar lokaliserade SVENSKA kategorietiketter ("musik", "scen & film", "utställningar"), bekräftat via en riktig körning där ALLA 228 event hamnade i "Övrigt" istället för Konserter/Scen & film/Museer. Lade till de svenska etiketterna i CATEGORY_TO_SECTION. Fixade även en "[object Object]"-bugg när ett kategorifält är ett objekt ({id,name}) istället för en sträng. v4.22: Steg 4 (första försöket) — "Skriv till sidan"-knappen skriver ikryssade event/guide till sidans befintliga fact_box/card_image_link-block via simulerad inklistring i Draftail, plus bildinfogning från befintlig bildbank. v4.21: Steg 3 — guide-förslag. v4.20: Steg 2 — hämtning/filtrering/kategorisering + checklista. v4.19: Steg 1 — flik, månadsväljare, inställningsfält. Äldre versioner: se git-historiken.
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.com/cms/pages/*/edit/*
@@ -1920,6 +1920,84 @@
     return null;
   }
 
+  // Paste-reserv när React-props saknas (portrerad från EventBot v7.97.9):
+  // vissa sidor exponerar aldrig __reactFiber$/__reactProps$ på .DraftEditor-root
+  // ("root-nycklar: 0" i loggen), så props-vandringen är en återvändsgränd —
+  // då skrivs texten UTAN React-props i stället, en metod i taget med
+  // verifiering mot det dolda input-fältet mellan varje steg.
+  const draftailNorm = t => String(t || '').replace(/\s+/g, ' ').trim();
+
+  // Draft.js är en kontrollerad komponent: DOM-ändringar React inte sanktionerat
+  // accepteras till synes men kastas bort vid nästa tangenttryckning. Därför
+  // verifieras varje metod mot det DOLDA input-fältet (draft.js-JSON) — aldrig
+  // mot DOM:en. Synken till det dolda fältet kan dröja, därför pollas det.
+  async function draftailTextLanded(fieldId, text) {
+    const want = draftailNorm(text);
+    for (let i = 0; i < 15; i++) {
+      if (draftailNorm(readDraftailText(fieldId)) === want) return true;
+      await wait(100);
+    }
+    return draftailNorm(readDraftailText(fieldId)) === want;
+  }
+
+  async function updateDraftailViaClipboard(fieldId, text) {
+    const hidden = document.getElementById(fieldId);
+    const root = await mountDraftail(fieldId);
+    if (!root) return false;
+    const surface = root.querySelector('.public-DraftEditor-content') || root;
+
+    // Metod 1 — riktig paste-händelse: går genom Draftails egen paste-hantering
+    // som uppdaterar React-state korrekt, därför först.
+    try {
+      if (!surface.isContentEditable) return false;
+      surface.focus();
+      const dt = new DataTransfer();
+      dt.setData('text/plain', String(text));
+      surface.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+    } catch (err) {
+      vlog('Draftail: paste-händelse misslyckades för ' + fieldId + ': ' + (err && err.message ? err.message : err), 'warn');
+    }
+    if (await draftailTextLanded(fieldId, text)) {
+      vlog('Draftail: ' + fieldId + ' ifyllt via paste-händelse.', 'ok');
+      return true;
+    }
+
+    // Metod 2 — execCommand: ersätter markerat innehåll i den fokuserade ytan
+    // när paste inte landat; kräver att ytan faktiskt är fokuserad.
+    try {
+      surface.focus();
+      document.execCommand('selectAll');
+      document.execCommand('insertText', false, String(text));
+    } catch (err) {
+      vlog('Draftail: execCommand misslyckades för ' + fieldId + ': ' + (err && err.message ? err.message : err), 'warn');
+    }
+    if (await draftailTextLanded(fieldId, text)) {
+      vlog('Draftail: ' + fieldId + ' ifyllt via execCommand.', 'ok');
+      return true;
+    }
+
+    // Metod 3 — sista reserv: Draft.js-JSON direkt i det dolda input-fältet.
+    // Fältet kan bli svårt att redigera vid nästa tangenttryckning, men ett
+    // ifyllt fält är bättre än ett tomt.
+    if (hidden) {
+      try {
+        hidden.value = JSON.stringify({ blocks: [{ key: 'sb0', text: String(text), type: 'unstyled', depth: 0, inlineStyleRanges: [], entityRanges: [], data: {} }], entityMap: {} });
+        hidden.dispatchEvent(new Event('input', { bubbles: true }));
+        hidden.dispatchEvent(new Event('change', { bubbles: true }));
+      } catch (err) {
+        vlog('Draftail: kunde inte skriva dolt input-fält för ' + fieldId + ': ' + (err && err.message ? err.message : err), 'warn');
+      }
+      if (await draftailTextLanded(fieldId, text)) {
+        vlog('Draftail: ' + fieldId + ' ifyllt via dolt input-fält — fältet kan behöva redigeras efter sparning.', 'warn');
+        return true;
+      }
+    }
+
+    vlog('Draftail: paste-reserv misslyckades för ' + fieldId + ' — fältet lämnas orört. [' +
+         (window.__sbDraftailDebug || 'ingen debug-info') + ']', 'err');
+    return false;
+  }
+
   async function updateDraftail(fieldId, text) {
     try {
       const root = await mountDraftail(fieldId);
@@ -1929,9 +2007,9 @@
       }
       const props = getDraftProps(root);
       if (!props) {
-        vlog('Draftail: hittade fältet ' + fieldId + ' men inte dess React-props — fältet lämnas orört. [' +
-             (window.__sbDraftailDebug || 'ingen debug-info') + ']', 'err');
-        return false;
+        vlog('Draftail: hittade fältet ' + fieldId + ' men inte dess React-props — provar paste-reserv. [' +
+             (window.__sbDraftailDebug || 'ingen debug-info') + ']', 'warn');
+        return await updateDraftailViaClipboard(fieldId, text);
       }
       const editorState = props.editorState;
       const EditorState = editorState.constructor;
