@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      4.31
-// @description  v4.31: Draftail-fält på vissa sid-sidor gick inte att fylla i — loggen visade "root-nycklar: 0", dvs. React sätter aldrig __reactFiber$/__reactProps$ på .DraftEditor-root där, så props-vandringen kan aldrig lyckas. När React-props saknas körs nu en paste-reserv (portrerad från EventBot v7.97.9): riktig paste-händelse → execCommand → dolt input-fält, en metod i taget med verifiering mot det dolda draft.js-fältet mellan varje steg. v4.30: inställningar överlever uppdatering, What's On fler event, GM-kontext-reserv, Draftail React 17+-props. v4.23: Fixat "Skriv till sidan" som inte gjorde något — orsaken var att kategori→sektion-mappningen (WHAT'S ON) bara kände till engelska slugs, medan API:et på .se-domänen faktiskt returnerar lokaliserade SVENSKA kategorietiketter ("musik", "scen & film", "utställningar"), bekräftat via en riktig körning där ALLA 228 event hamnade i "Övrigt" istället för Konserter/Scen & film/Museer. Lade till de svenska etiketterna i CATEGORY_TO_SECTION. Fixade även en "[object Object]"-bugg när ett kategorifält är ett objekt ({id,name}) istället för en sträng. v4.22: Steg 4 (första försöket) — "Skriv till sidan"-knappen skriver ikryssade event/guide till sidans befintliga fact_box/card_image_link-block via simulerad inklistring i Draftail, plus bildinfogning från befintlig bildbank. v4.21: Steg 3 — guide-förslag. v4.20: Steg 2 — hämtning/filtrering/kategorisering + checklista. v4.19: Steg 1 — flik, månadsväljare, inställningsfält. Äldre versioner: se git-historiken.
+// @version      4.32
+// @description  v4.32: Översättningsfunktionen missade preamble (textarea), fact_box-modulernas rubriktext (extended_rich_text-N-value-html, Draftail) och card_image_link-modulernas title/text/link-text — TRANSLATABLE_FIELDS var en statisk lista som bara täckte fasta sidfält. Fältlistan byggs nu dynamiskt per körning och plockar med alla streamfield-block i extended rich text, men ALDRIG URL- (link-url/link-page), bild- eller bakgrundsfält. v4.31: Draftail-fält på vissa sid-sidor gick inte att fylla i — loggen visade "root-nycklar: 0", dvs. React sätter aldrig __reactFiber$/__reactProps$ på .DraftEditor-root där, så props-vandringen kan aldrig lyckas. När React-props saknas körs nu en paste-reserv (portrerad från EventBot v7.97.9): riktig paste-händelse → execCommand → dolt input-fält, en metod i taget med verifiering mot det dolda draft.js-fältet mellan varje steg. v4.30: inställningar överlever uppdatering, What's On fler event, GM-kontext-reserv, Draftail React 17+-props. v4.23: Fixat "Skriv till sidan" som inte gjorde något — orsaken var att kategori→sektion-mappningen (WHAT'S ON) bara kände till engelska slugs, medan API:et på .se-domänen faktiskt returnerar lokaliserade SVENSKA kategorietiketter ("musik", "scen & film", "utställningar"), bekräftat via en riktig körning där ALLA 228 event hamnade i "Övrigt" istället för Konserter/Scen & film/Museer. Lade till de svenska etiketterna i CATEGORY_TO_SECTION. Fixade även en "[object Object]"-bugg när ett kategorifält är ett objekt ({id,name}) istället för en sträng. v4.22: Steg 4 (första försöket) — "Skriv till sidan"-knappen skriver ikryssade event/guide till sidans befintliga fact_box/card_image_link-block via simulerad inklistring i Draftail, plus bildinfogning från befintlig bildbank. v4.21: Steg 3 — guide-förslag. v4.20: Steg 2 — hämtning/filtrering/kategorisering + checklista. v4.19: Steg 1 — flik, månadsväljare, inställningsfält. Äldre versioner: se git-historiken.
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.com/cms/pages/*/edit/*
@@ -299,8 +299,14 @@
   // booking_link, canonical_link), slug (styr sidans egen URL), datum och
   // kryssrutor. rich_text/extra_info_text är Draftail-fält och läses/skrivs
   // därför via readDraftailText/updateDraftail, inte som vanliga textfält.
-  const TRANSLATABLE_FIELDS = [
+  // Översättningsfält: statiska sidfält + STREAMFIELD-BLOCK. Extended rich
+  // text-moduler (card_image_link + fact_box) upptäcks dynamiskt per block-N
+  // vid varje läsning/skrivning — sidor kan ha godtyckligt många block i
+  // godtycklig ordning, så en statisk lista duger inte. URL-fält (link-url,
+  // link-page), bild- och bakgrundsfält plockas ALDRIG med — bara text.
+  const STATIC_TRANSLATABLE_FIELDS = [
     ['title', 'id_title', 'plain'],
+    ['preamble', 'id_preamble', 'plain'],
     ['rich_text', 'id_rich_text', 'draftail'],
     ['extra_info_text', 'id_extra_info_text', 'draftail'],
     ['seo_title', 'id_seo_title', 'plain'],
@@ -313,12 +319,25 @@
     ['external_link_text', 'id_external_link_text', 'plain'],
     ['related_events_title', 'id_related_events_title', 'plain']
   ];
+  // extended_rich_text-N-value-html = fact_box-rubriktext (Draftail);
+  // -value-title = kortrubrik, -value-text = korttext, -value-link-text =
+  // länktext. Andra suffix (link-url, link-page, image, background, deleted,
+  // order, type, id) matchar INTE regexet och lämnas orörda.
+  const EXT_FIELD_RE = /^extended_rich_text-\d+-value-(html|title|text|link-text)$/;
+  function collectTranslatableFields() {
+    const fields = STATIC_TRANSLATABLE_FIELDS.slice();
+    document.querySelectorAll('[id^="extended_rich_text-"]').forEach(el => {
+      if (!EXT_FIELD_RE.test(el.id)) return;
+      fields.push([el.id, el.id, el.id.endsWith('-value-html') ? 'draftail' : 'plain']);
+    });
+    return fields;
+  }
 
   const TRANSLATE_LANG_NAME = { sv: 'svenska', en: 'amerikansk engelska (US English)' };
 
   function readTranslatableFields() {
     const values = {};
-    for (const [key, id, kind] of TRANSLATABLE_FIELDS) {
+    for (const [key, id, kind] of collectTranslatableFields()) {
       values[key] = kind === 'draftail' ? readDraftailText(id) : (($(id) || {}).value || '');
     }
     return values;
@@ -326,7 +345,7 @@
 
   async function writeTranslatableFields(values) {
     let written = 0;
-    for (const [key, id, kind] of TRANSLATABLE_FIELDS) {
+    for (const [key, id, kind] of collectTranslatableFields()) {
       const text = values[key];
       if (!text) continue;
       if (kind === 'draftail') {
@@ -3906,7 +3925,7 @@ function buildPanel() {
 
     // Översätter sidans EGNA fält i-place (skriver över samma fält som
     // AI-skapandet fyller i ovan) — rör aldrig adress/kontakt/URL:er/slug/
-    // datum/kryssrutor, se TRANSLATABLE_FIELDS. Körs oberoende av hur
+    // datum/kryssrutor, se STATIC_TRANSLATABLE_FIELDS + collectTranslatableFields. Körs oberoende av hur
     // fälten fick sitt nuvarande innehåll (AI-skapande eller manuell
     // redigering), och kan köras när som helst medan sidan är öppen.
     async function translatePage(targetLang) {
