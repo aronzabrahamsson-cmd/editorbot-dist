@@ -4106,7 +4106,7 @@ function buildPanel() {
           vlog('Översättning: em-dash kvarstår efter 3 försök (' + dashFields.join(', ') + ') — ersätter mekaniskt med n-dash med mellanslag.', 'warn');
           translated = sanitizeEmDash(translated);
         }
-        const written = await writeTranslatableFields(translated);
+        let written = await writeTranslatableFields(translated);
         // Draftail-fält skrivs segmentvis: struktur/länkar/bilder bevaras.
         for (const [fieldId, info] of Object.entries(draftailSources)) {
           const segTextsByBlock = {};
