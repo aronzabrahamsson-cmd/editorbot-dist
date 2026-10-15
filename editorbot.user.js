@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      4.33
-// @description  v4.33: GM-kontext-flaggan (sid-fetch för resten av sessionen) triggas nu även av "Could not establish connection" och "SBR-bot-bryggan kunde inte nå service workern" — tidigare bara "Extension context invalidated" — så en död GM-brygga inte loggas om och försöks om vid varje anrop. v4.32: Översättningsfunktionen missade preamble (textarea), fact_box-modulernas rubriktext (extended_rich_text-N-value-html, Draftail) och card_image_link-modulernas title/text/link-text — TRANSLATABLE_FIELDS var en statisk lista som bara täckte fasta sidfält. Fältlistan byggs nu dynamiskt per körning och plockar med alla streamfield-block i extended rich text, men ALDRIG URL- (link-url/link-page), bild- eller bakgrundsfält. v4.31: Draftail-fält på vissa sid-sidor gick inte att fylla i — loggen visade "root-nycklar: 0", dvs. React sätter aldrig __reactFiber$/__reactProps$ på .DraftEditor-root där, så props-vandringen kan aldrig lyckas. När React-props saknas körs nu en paste-reserv (portrerad från EventBot v7.97.9): riktig paste-händelse → execCommand → dolt input-fält, en metod i taget med verifiering mot det dolda draft.js-fältet mellan varje steg. v4.30: inställningar överlever uppdatering, What's On fler event, GM-kontext-reserv, Draftail React 17+-props. v4.23: Fixat "Skriv till sidan" som inte gjorde något — orsaken var att kategori→sektion-mappningen (WHAT'S ON) bara kände till engelska slugs, medan API:et på .se-domänen faktiskt returnerar lokaliserade SVENSKA kategorietiketter ("musik", "scen & film", "utställningar"), bekräftat via en riktig körning där ALLA 228 event hamnade i "Övrigt" istället för Konserter/Scen & film/Museer. Lade till de svenska etiketterna i CATEGORY_TO_SECTION. Fixade även en "[object Object]"-bugg när ett kategorifält är ett objekt ({id,name}) istället för en sträng. v4.22: Steg 4 (första försöket) — "Skriv till sidan"-knappen skriver ikryssade event/guide till sidans befintliga fact_box/card_image_link-block via simulerad inklistring i Draftail, plus bildinfogning från befintlig bildbank. v4.21: Steg 3 — guide-förslag. v4.20: Steg 2 — hämtning/filtrering/kategorisering + checklista. v4.19: Steg 1 — flik, månadsväljare, inställningsfält. Äldre versioner: se git-historiken.
+// @version      4.34
+// @description  v4.34: Översättningen bevarar nu källformateringen i Draftail-fält — rubriker, fetstil, länkar och inlagda bilder — genom segmentvis översättning direkt i draft.js-JSON med omräknade offsets; Mistral instrueras alltid använda n-dash med mellanslag ( – ) i stället för em-dash utan mellanslag (—) och svar med em-dash skickas tillbaka upp till 3 gånger innan mekanisk sanering. v4.33: GM-kontext-flaggan (sid-fetch för resten av sessionen) triggas nu även av "Could not establish connection" och "SBR-bot-bryggan kunde inte nå service workern" — tidigare bara "Extension context invalidated" — så en död GM-brygga inte loggas om och försöks om vid varje anrop. v4.32: Översättningsfunktionen missade preamble (textarea), fact_box-modulernas rubriktext (extended_rich_text-N-value-html, Draftail) och card_image_link-modulernas title/text/link-text — TRANSLATABLE_FIELDS var en statisk lista som bara täckte fasta sidfält. Fältlistan byggs nu dynamiskt per körning och plockar med alla streamfield-block i extended rich text, men ALDRIG URL- (link-url/link-page), bild- eller bakgrundsfält. v4.31: Draftail-fält på vissa sid-sidor gick inte att fylla i — loggen visade "root-nycklar: 0", dvs. React sätter aldrig __reactFiber$/__reactProps$ på .DraftEditor-root där, så props-vandringen kan aldrig lyckas. När React-props saknas körs nu en paste-reserv (portrerad från EventBot v7.97.9): riktig paste-händelse → execCommand → dolt input-fält, en metod i taget med verifiering mot det dolda draft.js-fältet mellan varje steg. v4.30: inställningar överlever uppdatering, What's On fler event, GM-kontext-reserv, Draftail React 17+-props. v4.23: Fixat "Skriv till sidan" som inte gjorde något — orsaken var att kategori→sektion-mappningen (WHAT'S ON) bara kände till engelska slugs, medan API:et på .se-domänen faktiskt returnerar lokaliserade SVENSKA kategorietiketter ("musik", "scen & film", "utställningar"), bekräftat via en riktig körning där ALLA 228 event hamnade i "Övrigt" istället för Konserter/Scen & film/Museer. Lade till de svenska etiketterna i CATEGORY_TO_SECTION. Fixade även en "[object Object]"-bugg när ett kategorifält är ett objekt ({id,name}) istället för en sträng. v4.22: Steg 4 (första försöket) — "Skriv till sidan"-knappen skriver ikryssade event/guide till sidans befintliga fact_box/card_image_link-block via simulerad inklistring i Draftail, plus bildinfogning från befintlig bildbank. v4.21: Steg 3 — guide-förslag. v4.20: Steg 2 — hämtning/filtrering/kategorisering + checklista. v4.19: Steg 1 — flik, månadsväljare, inställningsfält. Äldre versioner: se git-historiken.
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.com/cms/pages/*/edit/*
@@ -349,7 +349,7 @@
       const text = values[key];
       if (!text) continue;
       if (kind === 'draftail') {
-        if (await updateDraftail(id, text)) written++;
+        continue; // Draftail skrivs segmentvis i translatePage (struktur bevaras)
       } else if (simulateInput($(id), text)) {
         written++;
       }
@@ -1885,6 +1885,101 @@
     if (!hidden || !hidden.value) return '';
     try { return (JSON.parse(hidden.value).blocks || []).map(b => b.text || '').join('\n'); }
     catch { return ''; }
+  }
+
+  // ===== STRUKTURBEVARANDE DRAFTAIL-ÖVERSÄTTNING =====
+  // Översätts platt text (updateDraftail) förstörs Draft.js-strukturen:
+  // rubriker (h2/h3), fetstil, länkar och INLAGDA BILDER (atomic-block +
+  // entityMap) försvinner. Därför översätts Draftail-fält segmentvis direkt
+  // i draft.js-JSON:en — blocktyper, inlineStyleRanges, entityRanges och
+  // entityMap lämnas orörda, bara texten byts ut och offsets räknas om.
+  // Atomic-block (bilder) lämnas helt intakta.
+  function readDraftailJSON(fieldId) {
+    const hidden = document.getElementById(fieldId);
+    if (!hidden || !hidden.value) return null;
+    try { const d = JSON.parse(hidden.value); return (d && d.blocks) ? d : null; }
+    catch { return null; }
+  }
+  function splitBlockSegments(text, entityRanges) {
+    const bounds = new Set([0, text.length]);
+    (entityRanges || []).forEach(r => { bounds.add(Math.min(r.offset, text.length)); bounds.add(Math.min(r.offset + r.length, text.length)); });
+    const points = [...bounds].sort((a, b) => a - b);
+    const segs = [];
+    for (let i = 0; i < points.length - 1; i++) {
+      const start = points[i], end = points[i + 1];
+      if (end <= start) continue;
+      const er = (entityRanges || []).find(r => r.offset <= start && r.offset + r.length >= end);
+      segs.push({ start, end, text: text.slice(start, end), entityKey: er ? er.key : null });
+    }
+    return segs;
+  }
+  function rebuildBlock(block, segTexts) {
+    const segs = splitBlockSegments(block.text || '', block.entityRanges);
+    let newText = '', cursor = 0;
+    const segStart = [], segEnd = [];
+    segs.forEach((sg, i) => {
+      segStart[i] = cursor;
+      const t = (segTexts && Object.prototype.hasOwnProperty.call(segTexts, i)) ? segTexts[i] : sg.text;
+      newText += t;
+      cursor += t.length;
+      segEnd[i] = cursor;
+    });
+    const newRanges = (block.entityRanges || []).map(r => {
+      const idx = segs.findIndex(sg => sg.entityKey === r.key && sg.start >= r.offset && sg.end <= r.offset + r.length);
+      const i = idx >= 0 ? idx : segs.findIndex(sg => sg.entityKey === r.key);
+      return i >= 0 ? { key: r.key, offset: segStart[i], length: segEnd[i] - segStart[i] } : r;
+    });
+    const newStyles = (block.inlineStyleRanges || []).map(r => {
+      const from = segs.findIndex(sg => sg.end > r.offset);
+      const to = segs.reduce((acc, sg, i) => (sg.start < r.offset + r.length ? i : acc), -1);
+      if (from < 0 || to < 0) return r;
+      return { style: r.style, offset: segStart[from], length: segEnd[to] - segStart[from] };
+    });
+    return Object.assign({}, block, { text: newText, entityRanges: newRanges, inlineStyleRanges: newStyles });
+  }
+  function extractDraftailSegments(content) {
+    const out = [];
+    (content.blocks || []).forEach((b, bi) => {
+      if ((b.type || '') === 'atomic') return;
+      splitBlockSegments(b.text || '', b.entityRanges).forEach((sg, si) => {
+        if (sg.text.trim()) out.push({ block: bi, seg: si, text: sg.text });
+      });
+    });
+    return out;
+  }
+  // Det dolda input-fältet är enda vägen att bevara STRUKTUR (React-props
+  // är inte nåbara på dessa sidor) — synliga editorn kan visa gammal text
+  // tills sidladdning, men sparat innehåll är det översatta med alla
+  // bilder/länkar kvar.
+  function writeDraftailJSON(fieldId, content) {
+    const hidden = document.getElementById(fieldId);
+    if (!hidden) return false;
+    try {
+      const payload = Object.assign({}, content, { entityMap: content.entityMap || {} });
+      hidden.value = JSON.stringify(payload);
+      hidden.dispatchEvent(new Event('input', { bubbles: true }));
+      hidden.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    } catch (err) {
+      vlog('Draftail: kunde inte skriva struktur till ' + fieldId + ': ' + (err && err.message ? err.message : err), 'err');
+      return false;
+    }
+  }
+  // EM-DASH-KONTROLL: n-dash med mellanslag (" – ") ska ALLTID användas i
+  // stället för em-dash utan mellanslag ("—"). Svar med em-dash skickas
+  // tillbaka upp till 3 gänger; därefter mekanisk sanering så em-dash
+  // ALDRIG når sidan.
+  const EM_DASH = '\u2014';
+  const EN_DASH_SPACED = ' \u2013 ';
+  function findEmDashFields(obj) {
+    return Object.keys(obj || {}).filter(k => typeof obj[k] === 'string' && obj[k].includes(EM_DASH));
+  }
+  function sanitizeEmDash(obj) {
+    const out = {};
+    Object.entries(obj || {}).forEach(([k, v]) => {
+      out[k] = typeof v === 'string' ? v.split(EM_DASH).join(EN_DASH_SPACED) : v;
+    });
+    return out;
   }
 
   async function mountDraftail(fieldId) {
@@ -3949,13 +4044,27 @@ function buildPanel() {
       const langName = TRANSLATE_LANG_NAME[targetLang];
 
       try {
+        const draftailSources = {};
         const source = readTranslatableFields();
+        collectTranslatableFields().forEach(([key, id, kind]) => {
+          if (kind !== 'draftail') return;
+          const content = readDraftailJSON(id);
+          if (!content) return;
+          const segMap = {};
+          extractDraftailSegments(content).forEach(seg => {
+            const segKey = key + '|b' + seg.block + 's' + seg.seg;
+            segMap[segKey] = seg.text;
+            source[segKey] = seg.text;
+          });
+          draftailSources[id] = { key, content, segMap };
+          delete source[key];
+        });
         const nonEmptyKeys = Object.keys(source).filter(k => source[k]);
         if (nonEmptyKeys.length === 0) {
           setStatus('Inga ifyllda textfält att översätta.', 'err');
           return;
         }
-        vlog('Översättning → ' + langName + ': läser ' + nonEmptyKeys.length + ' fält: ' + nonEmptyKeys.join(', '));
+        vlog('Översättning → ' + langName + ': läser ' + nonEmptyKeys.length + ' fält/segment: ' + nonEmptyKeys.join(', '));
         setStatus('Skickar till Mistral (' + langName + ')...', 'work');
 
         let translated = await callTranslatorForJSON(apiKey, targetLang, JSON.stringify(source));
@@ -3982,7 +4091,41 @@ function buildPanel() {
           return;
         }
 
+        // Em-dash-kontroll: skicka tillbaka till Mistral upp till 3 gänger.
+        let dashFields = findEmDashFields(translated);
+        let dashTry = 0;
+        while (dashFields.length > 0 && dashTry < 3) {
+          dashTry++;
+          vlog('Översättning: em-dash (—) i ' + dashFields.length + ' fält — skickar tillbaka för korrigering (' + dashTry + '/3): ' + dashFields.join(', '), 'warn');
+          setStatus('Em-dash i översättningen, rättar till n-dash (' + dashTry + '/3)...', 'work');
+          translated = await callTranslatorForJSON(apiKey, targetLang,
+            JSON.stringify(translated) + '\n\nDIN TEXT INNEHÅLLER EM-DASH UTAN MELLANSLAG ("' + EM_DASH + '"), VILKET ÄR FÖRBJUDET. Ersätt ALLA förekomster av em-dash med n-dash med mellanslag (" – ") och returnera hela JSON-objektet igen med EXAKT SAMMA NYCKLAR.');
+          dashFields = findEmDashFields(translated);
+        }
+        if (dashFields.length > 0) {
+          vlog('Översättning: em-dash kvarstår efter 3 försök (' + dashFields.join(', ') + ') — ersätter mekaniskt med n-dash med mellanslag.', 'warn');
+          translated = sanitizeEmDash(translated);
+        }
         const written = await writeTranslatableFields(translated);
+        // Draftail-fält skrivs segmentvis: struktur/länkar/bilder bevaras.
+        for (const [fieldId, info] of Object.entries(draftailSources)) {
+          const segTextsByBlock = {};
+          Object.entries(info.segMap).forEach(([segKey]) => {
+            const m = segKey.match(/\|b(\d+)s(\d+)$/);
+            if (!m) return;
+            const t = translated[segKey];
+            if (typeof t !== 'string') return;
+            (segTextsByBlock[m[1]] = segTextsByBlock[m[1]] || {})[m[2]] = t;
+          });
+          const newBlocks = info.content.blocks.map((b, bi) =>
+            Object.prototype.hasOwnProperty.call(segTextsByBlock, bi) ? rebuildBlock(b, segTextsByBlock[bi]) : b);
+          if (writeDraftailJSON(fieldId, Object.assign({}, info.content, { blocks: newBlocks }))) {
+            written++;
+            vlog('Översättning: ' + fieldId + ' omskrivet segmentvis (struktur, länkar och bilder bevarade).', 'ok');
+          } else {
+            vlog('Översättning: kunde inte skriva ' + fieldId + ' — fältet lämnas orört.', 'err');
+          }
+        }
         vlog('Översättning klar (' + langName + '). Uppdaterade ' + written + ' fält.', 'ok');
         setStatus('✅ Översatt till ' + langName + ' (' + written + ' fält)', 'ok');
       } catch (e) {
