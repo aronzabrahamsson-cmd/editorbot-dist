@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      4.37
-// @description  v4.37: Alt+klick laddade ner länkmålet och la inte till eventet på sidor utanför event-/events-sökvägarna — @match breddas till hela visitstockholm.se/com och widgeten byggs på ALLA publika (icke-CMS) sidor; alt+klick preventDefault:as FÖR kategorikollen så webbläsarens nedladdning stoppas alltid; kategorirubrikerna är fetställda med kryssruta som visar aktuell kategori + antal sparade event per kategori. v4.36: Widgeten gick inte att minimera och rensa-knappen saknade lyssnare (fanns i HTML:en men gjorde inget); kategorirubrikerna är nu riktiga knappar; guidegardin-renderingen är try/catch-ad så ett fel där inte längre kan döda panelens tabblyssnare (orsaken till att tabben inte gick att klicka på). v4.35: WHAT'S ON-OMTAG: nytt alt+klick-flöde — välj kategori i widgeten på event-/listsidor (nu även @match:ade) och alt+klicka eventlänkar för att samla dem i GM-minne (namn visas, ta bort/drag-drop mellan kategorier, rensa-knapp); i CMS:et fyller [Svenska]/[Engelska] sidans kategorisektioner med samma HTML-struktur som befintligt innehåll — SV ersätter månaden helt och uppdaterar titelns månad, EN staplar på under föregående månader; guidegardin med sök över månadsguideförslagen, ett guideval per card-kort. v4.34: Översättningen bevarar nu källformateringen i Draftail-fält — rubriker, fetstil, länkar och inlagda bilder — genom segmentvis översättning direkt i draft.js-JSON med omräknade offsets; Mistral instrueras alltid använda n-dash med mellanslag ( – ) i stället för em-dash utan mellanslag (—) och svar med em-dash skickas tillbaka upp till 3 gånger innan mekanisk sanering. v4.33: GM-kontext-flaggan (sid-fetch för resten av sessionen) triggas nu även av "Could not establish connection" och "SBR-bot-bryggan kunde inte nå service workern" — tidigare bara "Extension context invalidated" — så en död GM-brygga inte loggas om och försöks om vid varje anrop. v4.32: Översättningsfunktionen missade preamble (textarea), fact_box-modulernas rubriktext (extended_rich_text-N-value-html, Draftail) och card_image_link-modulernas title/text/link-text — TRANSLATABLE_FIELDS var en statisk lista som bara täckte fasta sidfält. Fältlistan byggs nu dynamiskt per körning och plockar med alla streamfield-block i extended rich text, men ALDRIG URL- (link-url/link-page), bild- eller bakgrundsfält. v4.31: Draftail-fält på vissa sid-sidor gick inte att fylla i — loggen visade "root-nycklar: 0", dvs. React sätter aldrig __reactFiber$/__reactProps$ på .DraftEditor-root där, så props-vandringen kan aldrig lyckas. När React-props saknas körs nu en paste-reserv (portrerad från EventBot v7.97.9): riktig paste-händelse → execCommand → dolt input-fält, en metod i taget med verifiering mot det dolda draft.js-fältet mellan varje steg. v4.30: inställningar överlever uppdatering, What's On fler event, GM-kontext-reserv, Draftail React 17+-props. v4.23: Fixat "Skriv till sidan" som inte gjorde något — orsaken var att kategori→sektion-mappningen (WHAT'S ON) bara kände till engelska slugs, medan API:et på .se-domänen faktiskt returnerar lokaliserade SVENSKA kategorietiketter ("musik", "scen & film", "utställningar"), bekräftat via en riktig körning där ALLA 228 event hamnade i "Övrigt" istället för Konserter/Scen & film/Museer. Lade till de svenska etiketterna i CATEGORY_TO_SECTION. Fixade även en "[object Object]"-bugg när ett kategorifält är ett objekt ({id,name}) istället för en sträng. v4.22: Steg 4 (första försöket) — "Skriv till sidan"-knappen skriver ikryssade event/guide till sidans befintliga fact_box/card_image_link-block via simulerad inklistring i Draftail, plus bildinfogning från befintlig bildbank. v4.21: Steg 3 — guide-förslag. v4.20: Steg 2 — hämtning/filtrering/kategorisering + checklista. v4.19: Steg 1 — flik, månadsväljare, inställningsfält. Äldre versioner: se git-historiken.
+// @version      4.38
+// @description  v4.38: När GM-bryggan är död (SBR-bot service worker nere) kastade GM_getValue/GM_setValue och ETT kast i init-sekvensen dödade hela panelen — tabbar/logg/inställningar blev oklickbara. Alla GM-anrop går nu via säkra wrappers (sbGMGet/sbGMSet) med localStorage-fallback som aldrig kastar, och hela init-sekvensen (tema, panel, EventPortal-listen, widget) är try/catch-ad per bygge så UI:t alltid byggs även om GM-lagringen är otillgänglig. v4.37: Alt+klick laddade ner länkmålet och la inte till eventet på sidor utanför event-/events-sökvägarna — @match breddas till hela visitstockholm.se/com och widgeten byggs på ALLA publika (icke-CMS) sidor; alt+klick preventDefault:as FÖR kategorikollen så webbläsarens nedladdning stoppas alltid; kategorirubrikerna är fetställda med kryssruta som visar aktuell kategori + antal sparade event per kategori. v4.36: Widgeten gick inte att minimera och rensa-knappen saknade lyssnare (fanns i HTML:en men gjorde inget); kategorirubrikerna är nu riktiga knappar; guidegardin-renderingen är try/catch-ad så ett fel där inte längre kan döda panelens tabblyssnare (orsaken till att tabben inte gick att klicka på). v4.35: WHAT'S ON-OMTAG: nytt alt+klick-flöde — välj kategori i widgeten på event-/listsidor (nu även @match:ade) och alt+klicka eventlänkar för att samla dem i GM-minne (namn visas, ta bort/drag-drop mellan kategorier, rensa-knapp); i CMS:et fyller [Svenska]/[Engelska] sidans kategorisektioner med samma HTML-struktur som befintligt innehåll — SV ersätter månaden helt och uppdaterar titelns månad, EN staplar på under föregående månader; guidegardin med sök över månadsguideförslagen, ett guideval per card-kort. v4.34: Översättningen bevarar nu källformateringen i Draftail-fält — rubriker, fetstil, länkar och inlagda bilder — genom segmentvis översättning direkt i draft.js-JSON med omräknade offsets; Mistral instrueras alltid använda n-dash med mellanslag ( – ) i stället för em-dash utan mellanslag (—) och svar med em-dash skickas tillbaka upp till 3 gånger innan mekanisk sanering. v4.33: GM-kontext-flaggan (sid-fetch för resten av sessionen) triggas nu även av "Could not establish connection" och "SBR-bot-bryggan kunde inte nå service workern" — tidigare bara "Extension context invalidated" — så en död GM-brygga inte loggas om och försöks om vid varje anrop. v4.32: Översättningsfunktionen missade preamble (textarea), fact_box-modulernas rubriktext (extended_rich_text-N-value-html, Draftail) och card_image_link-modulernas title/text/link-text — TRANSLATABLE_FIELDS var en statisk lista som bara täckte fasta sidfält. Fältlistan byggs nu dynamiskt per körning och plockar med alla streamfield-block i extended rich text, men ALDRIG URL- (link-url/link-page), bild- eller bakgrundsfält. v4.31: Draftail-fält på vissa sid-sidor gick inte att fylla i — loggen visade "root-nycklar: 0", dvs. React sätter aldrig __reactFiber$/__reactProps$ på .DraftEditor-root där, så props-vandringen kan aldrig lyckas. När React-props saknas körs nu en paste-reserv (portrerad från EventBot v7.97.9): riktig paste-händelse → execCommand → dolt input-fält, en metod i taget med verifiering mot det dolda draft.js-fältet mellan varje steg. v4.30: inställningar överlever uppdatering, What's On fler event, GM-kontext-reserv, Draftail React 17+-props. v4.23: Fixat "Skriv till sidan" som inte gjorde något — orsaken var att kategori→sektion-mappningen (WHAT'S ON) bara kände till engelska slugs, medan API:et på .se-domänen faktiskt returnerar lokaliserade SVENSKA kategorietiketter ("musik", "scen & film", "utställningar"), bekräftat via en riktig körning där ALLA 228 event hamnade i "Övrigt" istället för Konserter/Scen & film/Museer. Lade till de svenska etiketterna i CATEGORY_TO_SECTION. Fixade även en "[object Object]"-bugg när ett kategorifält är ett objekt ({id,name}) istället för en sträng. v4.22: Steg 4 (första försöket) — "Skriv till sidan"-knappen skriver ikryssade event/guide till sidans befintliga fact_box/card_image_link-block via simulerad inklistring i Draftail, plus bildinfogning från befintlig bildbank. v4.21: Steg 3 — guide-förslag. v4.20: Steg 2 — hämtning/filtrering/kategorisering + checklista. v4.19: Steg 1 — flik, månadsväljare, inställningsfält. Äldre versioner: se git-historiken.
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.com/cms/pages/*/edit/*
@@ -64,7 +64,7 @@
   `;
 
   function getStoredTheme() {
-    return GM_getValue(THEME_KEY, 'dark') === 'light' ? 'light' : 'dark';
+    return sbGMGet(THEME_KEY, 'dark') === 'light' ? 'light' : 'dark';
   }
 
   function applyTheme(theme) {
@@ -414,7 +414,7 @@
   }
 
   function getCalendarApiBase() {
-    const override = GM_getValue('sidbot_calendar_api', '').trim();
+    const override = sbGMGet('sidbot_calendar_api', '').trim();
     if (override) return override;
     return isSwedishDomain() ? DEFAULT_CALENDAR_API_SE : DEFAULT_CALENDAR_API_COM;
   }
@@ -670,8 +670,8 @@
   // anropet (ingen nyckel/agent-ID, nätverksfel, ogiltigt svar) faller vi
   // tillbaka på truncateDescription så flödet aldrig blockeras.
   async function polishWhatsOnDescriptions(eventsBySection, lang) {
-    const apiKey = ($('sb-mkey').value || GM_getValue('sidbot_mkey', '')).trim();
-    const agentId = ($('sb-magent-whatson').value || GM_getValue('sidbot_magent_whatson', '')).trim();
+    const apiKey = ($('sb-mkey').value || sbGMGet('sidbot_mkey', '')).trim();
+    const agentId = ($('sb-magent-whatson').value || sbGMGet('sidbot_magent_whatson', '')).trim();
     if (!apiKey || !agentId) {
       vlog("WHAT'S ON: ingen What's On-agent konfigurerad — använder API:ets råbeskrivningar (trunkerade).", 'warn');
       return false;
@@ -875,8 +875,8 @@
   // anropet (ingen nyckel/agent-ID, nätverksfel, ogiltigt svar) faller vi
   // tillbaka på truncateDescription så flödet aldrig blockeras.
   async function polishWhatsOnDescriptions(eventsBySection, lang) {
-    const apiKey = ($('sb-mkey').value || GM_getValue('sidbot_mkey', '')).trim();
-    const agentId = ($('sb-magent-whatson').value || GM_getValue('sidbot_magent_whatson', '')).trim();
+    const apiKey = ($('sb-mkey').value || sbGMGet('sidbot_mkey', '')).trim();
+    const agentId = ($('sb-magent-whatson').value || sbGMGet('sidbot_magent_whatson', '')).trim();
     if (!apiKey || !agentId) {
       vlog("WHAT'S ON: ingen What's On-agent konfigurerad — använder API:ets råbeskrivningar (trunkerade).", 'warn');
       return false;
@@ -1003,11 +1003,11 @@
   }
 
   function whatsOn2Load() {
-    try { return JSON.parse(GM_getValue(WHATSON_MEMORY_KEY, '{}')) || {}; }
+    try { return JSON.parse(sbGMGet(WHATSON_MEMORY_KEY, '{}')) || {}; }
     catch { return {}; }
   }
   function whatsOn2Save(mem) {
-    GM_setValue(WHATSON_MEMORY_KEY, JSON.stringify(mem));
+    sbGMSet(WHATSON_MEMORY_KEY, JSON.stringify(mem));
   }
 
   // Hämtar en eventsidas titel (og:title i första hand) via gmGet.
@@ -1641,7 +1641,7 @@
     const file = fileInput.files && fileInput.files[0];
     if (!file) return;
 
-    const apiKey = GM_getValue('sidbot_mkey', '').trim();
+    const apiKey = sbGMGet('sidbot_mkey', '').trim();
     if (!apiKey) {
       vlog('Bildautomation: ingen Mistral API-nyckel sparad (se ⚙️-fliken) — hoppar över alt-text.', 'warn');
       return;
@@ -1771,9 +1771,9 @@
 
     setWrap.querySelectorAll('input[data-gmkey]').forEach(inp => {
       const key = inp.dataset.gmkey;
-      inp.value = GM_getValue(key, '');
+      inp.value = sbGMGet(key, '');
       inp.addEventListener('change', () => {
-        GM_setValue(key, inp.value.trim());
+        sbGMSet(key, inp.value.trim());
         const panelFieldMap = { sidbot_mkey: 'sb-mkey', sidbot_magent: 'sb-magent', sidbot_magent_whatson: 'sb-magent-whatson', sidbot_calendar_api: 'sb-calendar-api' };
         const panelField = document.getElementById(panelFieldMap[key] || '');
         if (panelField) panelField.value = inp.value.trim();
@@ -1790,7 +1790,7 @@
     document.getElementById('ep-img-setbtn').addEventListener('click', () => {
       logWrap.style.display = 'none';
       if (setWrap.style.display === 'block') { setWrap.style.display = 'none'; return; }
-      setWrap.querySelectorAll('input[data-gmkey]').forEach(inp => { inp.value = GM_getValue(inp.dataset.gmkey, ''); });
+      setWrap.querySelectorAll('input[data-gmkey]').forEach(inp => { inp.value = sbGMGet(inp.dataset.gmkey, ''); });
       setWrap.style.display = 'block';
     });
     document.getElementById('ep-img-setclose').addEventListener('click', () => { setWrap.style.display = 'none'; });
@@ -2648,7 +2648,7 @@
       }
 
       let stored;
-      try { stored = JSON.parse(GM_getValue(EP_STORAGE_KEY, '{}')); } catch {
+      try { stored = JSON.parse(sbGMGet(EP_STORAGE_KEY, '{}')); } catch {
         vlog('Ogiltig kopierad data!', 'err');
         setEpStatus('❌ Fel: Ogiltig data');
         return;
@@ -2895,7 +2895,7 @@
     events.sort((a, b) => a.order - b.order);
     vlog('Kopierade ' + events.length + ' event: ' + events.map(e => '"' + e.displayText + '"').join(', '), 'ok');
 
-    GM_setValue(EP_STORAGE_KEY, JSON.stringify({
+    sbGMSet(EP_STORAGE_KEY, JSON.stringify({
       sortByDate, excludeUrls, events, ts: Date.now()
     }));
 
@@ -2905,7 +2905,7 @@
   }
 
   function epClearStoredData() {
-    GM_setValue(EP_STORAGE_KEY, '');
+    sbGMSet(EP_STORAGE_KEY, '');
     setEpStatus('Data rensad');
   }
 
@@ -3641,11 +3641,49 @@
 // så fälten aldrig står tomma. Toppnivå så de kan köras var som helst —
 // även på EventPortal-sidor där buildPanel() aldrig körs.
 const SETTINGS_KEYS = ['sidbot_mkey', 'sidbot_magent', 'sidbot_magent_whatson', 'sidbot_calendar_api'];
+
+// ===== SÄKRA GM-WRAPPERS (v4.38) =====
+// När GM-bryggan (SBR-bot/Tampermonkey) är död kastar GM_getValue/GM_setValue
+// "Could not establish connection" — ett enda sådant kast i init-sekvensen
+// dödade tidigare hela panelen (tabblyssnarna registrerades aldrig). Alla
+// GM-anrop i scriptet går därför via dessa wrappers:
+// - get: försök GM först; kastar det, fall tillbaka på localStorage-
+//   säkerhetskopian (LS_KEY) och sist default.
+// - set: försök GM; misslyckas det lagras värdet i localStorage så
+//   backupSettingsToLS/restoreSettingsFromLS kan återställa senare.
+// Inget av fallen kastar vidare — scriptet fortsätter alltid.
+let __sbGmWarned = false;
+function sbGMGet(key, def) {
+  try { return GM_getValue(key, def); }
+  catch (e) {
+    if (!__sbGmWarned) {
+      __sbGmWarned = true;
+      try { vlog('GM-lagring svarar inte (' + (e && e.message ? e.message : e) + ') — använder localStorage-säkerhetskopian för denna session.', 'warn'); } catch {}
+    }
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      const obj = raw ? JSON.parse(raw) : {};
+      return (key in obj) ? obj[key] : def;
+    } catch { return def; }
+  }
+}
+function sbGMSet(key, val) {
+  try { GM_setValue(key, val); return true; }
+  catch (e) {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      const obj = raw ? JSON.parse(raw) : {};
+      obj[key] = val;
+      localStorage.setItem(LS_KEY, JSON.stringify(obj));
+    } catch {}
+    return false;
+  }
+}
 const LS_KEY = 'editorbot_settings_backup_v1';
 function backupSettingsToLS() {
   try {
     const data = {};
-    SETTINGS_KEYS.forEach(k => { data[k] = GM_getValue(k, ''); });
+    SETTINGS_KEYS.forEach(k => { data[k] = sbGMGet(k, ''); });
     localStorage.setItem(LS_KEY, JSON.stringify(data));
   } catch {}
 }
@@ -3656,8 +3694,8 @@ function restoreSettingsFromLS() {
     const obj = JSON.parse(raw);
     let restored = 0;
     SETTINGS_KEYS.forEach(k => {
-      if (!GM_getValue(k, '').trim() && typeof obj[k] === 'string' && obj[k].trim()) {
-        GM_setValue(k, obj[k].trim());
+      if (!sbGMGet(k, '').trim() && typeof obj[k] === 'string' && obj[k].trim()) {
+        sbGMSet(k, obj[k].trim());
         restored++;
       }
     });
@@ -3743,23 +3781,23 @@ function buildPanel() {
 
     // Om inget agent-ID sparats sedan tidigare, skriv standardagenten till
     // lagringen direkt (inte bara till fältets visade värde) — annars visar
-    // fältet rätt ID men GM_getValue('sidbot_magent') förblir tom tills
+    // fältet rätt ID men sbGMGet('sidbot_magent') förblir tom tills
     // användaren råkar ändra och lämna fältet, vilket gjorde att "Fyll i
     // API-nyckel och agent-ID först" kunde visas trots ett synligt värde.
-    if (!GM_getValue('sidbot_magent', '').trim()) GM_setValue('sidbot_magent', DEFAULT_MISTRAL_AGENT_ID);
+    if (!sbGMGet('sidbot_magent', '').trim()) sbGMSet('sidbot_magent', DEFAULT_MISTRAL_AGENT_ID);
 
-    $('sb-mkey').value = GM_getValue('sidbot_mkey', '');
-    $('sb-magent').value = GM_getValue('sidbot_magent', DEFAULT_MISTRAL_AGENT_ID);
-    $('sb-mkey').addEventListener('change', () => { GM_setValue('sidbot_mkey', $('sb-mkey').value.trim()); backupSettingsToLS(); });
-    $('sb-magent').addEventListener('change', () => { GM_setValue('sidbot_magent', $('sb-magent').value.trim()); backupSettingsToLS(); });
+    $('sb-mkey').value = sbGMGet('sidbot_mkey', '');
+    $('sb-magent').value = sbGMGet('sidbot_magent', DEFAULT_MISTRAL_AGENT_ID);
+    $('sb-mkey').addEventListener('change', () => { sbGMSet('sidbot_mkey', $('sb-mkey').value.trim()); backupSettingsToLS(); });
+    $('sb-magent').addEventListener('change', () => { sbGMSet('sidbot_magent', $('sb-magent').value.trim()); backupSettingsToLS(); });
 
     // What's On-fliken: eget agent-ID (skilt från objectpage-agenten ovan)
     // och en valfri override för kalender-API:ets bas-URL (annars används
     // standard-endpointen för aktuell domän, se buildWhatsOnMonthOptions).
-    $('sb-magent-whatson').value = GM_getValue('sidbot_magent_whatson', '');
-    $('sb-calendar-api').value = GM_getValue('sidbot_calendar_api', '');
-    $('sb-magent-whatson').addEventListener('change', () => { GM_setValue('sidbot_magent_whatson', $('sb-magent-whatson').value.trim()); backupSettingsToLS(); });
-    $('sb-calendar-api').addEventListener('change', () => { GM_setValue('sidbot_calendar_api', $('sb-calendar-api').value.trim()); backupSettingsToLS(); });
+    $('sb-magent-whatson').value = sbGMGet('sidbot_magent_whatson', '');
+    $('sb-calendar-api').value = sbGMGet('sidbot_calendar_api', '');
+    $('sb-magent-whatson').addEventListener('change', () => { sbGMSet('sidbot_magent_whatson', $('sb-magent-whatson').value.trim()); backupSettingsToLS(); });
+    $('sb-calendar-api').addEventListener('change', () => { sbGMSet('sidbot_calendar_api', $('sb-calendar-api').value.trim()); backupSettingsToLS(); });
     // ---- Export/Import av inställningsfält ----
     // Samma nycklar som fälten ovan. Exporten är en platt JSON-fil som kan
     // delas (innehåller API-nycklar — hantera därför filen som en hemlighet).
@@ -3775,7 +3813,7 @@ function buildPanel() {
     backupSettingsToLS();
     function exportSettingsFile() {
       const data = {};
-      Object.keys(SETTINGS_FIELD_MAP).forEach(k => { data[k] = GM_getValue(k, ''); });
+      Object.keys(SETTINGS_FIELD_MAP).forEach(k => { data[k] = sbGMGet(k, ''); });
       const blob = new Blob([JSON.stringify(data, null, 2) + '\n'], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -3791,7 +3829,7 @@ function buildPanel() {
       Object.keys(SETTINGS_FIELD_MAP).forEach(k => {
         if (!(k in obj)) return;
         const val = String(obj[k] == null ? '' : obj[k]).trim();
-        GM_setValue(k, val);
+        sbGMSet(k, val);
         const el = $(SETTINGS_FIELD_MAP[k].id);
         if (el) el.value = val;
         count++;
@@ -3853,7 +3891,7 @@ function buildPanel() {
     $('sb-darkmode').checked = getStoredTheme() === 'dark';
     $('sb-darkmode').addEventListener('change', () => {
       const theme = $('sb-darkmode').checked ? 'dark' : 'light';
-      GM_setValue(THEME_KEY, theme);
+      sbGMSet(THEME_KEY, theme);
       applyTheme(theme);
       vlog('Tema ändrat till ' + (theme === 'dark' ? 'mörkt' : 'ljust') + ' läge', 'ok');
     });
@@ -3867,7 +3905,7 @@ function buildPanel() {
       const panel = $('sb-panel');
       if (panel) panel.className = b.dataset.m;
       document.querySelectorAll('#sb-headbtns button[data-m]').forEach(btn => btn.classList.toggle('on', btn.dataset.m === b.dataset.m));
-      GM_setValue('sidbot_window_mode', b.dataset.m);
+      sbGMSet('sidbot_window_mode', b.dataset.m);
     }));
 
     $('sb-logbtn').addEventListener('click', () => { const w = $('sb-logwrap'); w.style.display = (w.style.display === 'none' ? 'flex' : 'none'); renderLog(); });
@@ -3905,8 +3943,8 @@ function buildPanel() {
       // för, eftersom det är 'change'-eventet som sparar till lagringen.
       const apiKey = ($('sb-mkey').value || '').trim();
       const agentId = ($('sb-magent').value || '').trim();
-      GM_setValue('sidbot_mkey', apiKey);
-      GM_setValue('sidbot_magent', agentId);
+      sbGMSet('sidbot_mkey', apiKey);
+      sbGMSet('sidbot_magent', agentId);
 
       if (!apiKey || !agentId) { setStatus('Fyll i API-nyckel och agent-ID först.', 'err'); return; }
       if (!url || !/^https?:\/\//i.test(url)) { setStatus('Ogiltig URL.', 'err'); return; }
@@ -4150,7 +4188,7 @@ function buildPanel() {
       }
     }
 
-    let mode = GM_getValue('sidbot_window_mode', 'min');
+    let mode = sbGMGet('sidbot_window_mode', 'min');
     if (!['min', 'max'].includes(mode)) mode = 'min';
     document.querySelectorAll('#sb-headbtns button[data-m]').forEach(b => b.classList.toggle('on', b.dataset.m === mode));
     vlog('EditorBot v' + SCRIPT_VERSION + ' startad');
@@ -4160,7 +4198,7 @@ function buildPanel() {
   // Temat appliceras innan bar/panel byggs, oavsett vilken av dem sidan
   // visar, så samma mörkt/ljust-val gäller överallt.
   injectThemeOverrideStyle();
-  applyTheme(getStoredTheme());
+  try { applyTheme(getStoredTheme()); } catch (e) { try { vlog('Init: tema kunde inte appliceras — ' + e.message, 'warn'); } catch {} }
   // Hydrera GM-lagringen från localStorage-säkerhetskopian vid VARJE
   // sidladdning, även på EventPortal-sidor där buildPanel() aldrig körs.
   try { restoreSettingsFromLS(); } catch {}
@@ -4172,18 +4210,25 @@ function buildPanel() {
   // delsträngsträff mot ett annat sid-ID (se epPageIdFromPath).
   const epPageId = epPageIdFromPath(location.pathname);
   const isEventPortalPage = epPageId !== null && Object.values(EP_PAGE_MAPPING).includes(epPageId);
+  const safeBuild = (name, fn) => {
+    try { fn(); }
+    catch (e) {
+      try { vlog('Init: ' + name + ' kraschade — ' + (e && e.message ? e.message : e), 'err'); }
+      catch {}
+    }
+  };
   if (isEventPortalPage) {
-    buildEventportorBar();
+    safeBuild('EventPortal-listen', buildEventportorBar);
   } else if (isWhatsOn2EditPage()) {
-    buildPanel();
+    safeBuild('EditorBot-panelen', buildPanel);
   } else if (isWhatsOn2CollectPage()) {
     // Publika sidor (event-/listsidor, Biggest Events osv.): samlingswidgeten
     // + alt+klick. Ingen EditorBot-panel och ingen CMS-bildhanteringslisten.
-    buildWhatsOn2Widget();
-    installWhatsOn2AltClickListener();
+    safeBuild("What's On-widgeten", buildWhatsOn2Widget);
+    try { installWhatsOn2AltClickListener(); } catch {}
     return;
   } else {
-    buildPanel();
+    safeBuild('EditorBot-panelen', buildPanel);
   }
   // Toppraden i bildvyn behövs på CMS-sidorna — bilduppladdningsmodalen
   // kan öppnas var som helst i CMS:et (publika sidor returnerar ovan).
