@@ -1,13 +1,15 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      4.36
-// @description  v4.36: Widgeten gick inte att minimera och rensa-knappen saknade lyssnare (fanns i HTML:en men gjorde inget); kategorirubrikerna är nu riktiga knappar; guidegardin-renderingen är try/catch-ad så ett fel där inte längre kan döda panelens tabblyssnare (orsaken till att tabben inte gick att klicka på). v4.35: WHAT'S ON-OMTAG: nytt alt+klick-flöde — välj kategori i widgeten på event-/listsidor (nu även @match:ade) och alt+klicka eventlänkar för att samla dem i GM-minne (namn visas, ta bort/drag-drop mellan kategorier, rensa-knapp); i CMS:et fyller [Svenska]/[Engelska] sidans kategorisektioner med samma HTML-struktur som befintligt innehåll — SV ersätter månaden helt och uppdaterar titelns månad, EN staplar på under föregående månader; guidegardin med sök över månadsguideförslagen, ett guideval per card-kort. v4.34: Översättningen bevarar nu källformateringen i Draftail-fält — rubriker, fetstil, länkar och inlagda bilder — genom segmentvis översättning direkt i draft.js-JSON med omräknade offsets; Mistral instrueras alltid använda n-dash med mellanslag ( – ) i stället för em-dash utan mellanslag (—) och svar med em-dash skickas tillbaka upp till 3 gånger innan mekanisk sanering. v4.33: GM-kontext-flaggan (sid-fetch för resten av sessionen) triggas nu även av "Could not establish connection" och "SBR-bot-bryggan kunde inte nå service workern" — tidigare bara "Extension context invalidated" — så en död GM-brygga inte loggas om och försöks om vid varje anrop. v4.32: Översättningsfunktionen missade preamble (textarea), fact_box-modulernas rubriktext (extended_rich_text-N-value-html, Draftail) och card_image_link-modulernas title/text/link-text — TRANSLATABLE_FIELDS var en statisk lista som bara täckte fasta sidfält. Fältlistan byggs nu dynamiskt per körning och plockar med alla streamfield-block i extended rich text, men ALDRIG URL- (link-url/link-page), bild- eller bakgrundsfält. v4.31: Draftail-fält på vissa sid-sidor gick inte att fylla i — loggen visade "root-nycklar: 0", dvs. React sätter aldrig __reactFiber$/__reactProps$ på .DraftEditor-root där, så props-vandringen kan aldrig lyckas. När React-props saknas körs nu en paste-reserv (portrerad från EventBot v7.97.9): riktig paste-händelse → execCommand → dolt input-fält, en metod i taget med verifiering mot det dolda draft.js-fältet mellan varje steg. v4.30: inställningar överlever uppdatering, What's On fler event, GM-kontext-reserv, Draftail React 17+-props. v4.23: Fixat "Skriv till sidan" som inte gjorde något — orsaken var att kategori→sektion-mappningen (WHAT'S ON) bara kände till engelska slugs, medan API:et på .se-domänen faktiskt returnerar lokaliserade SVENSKA kategorietiketter ("musik", "scen & film", "utställningar"), bekräftat via en riktig körning där ALLA 228 event hamnade i "Övrigt" istället för Konserter/Scen & film/Museer. Lade till de svenska etiketterna i CATEGORY_TO_SECTION. Fixade även en "[object Object]"-bugg när ett kategorifält är ett objekt ({id,name}) istället för en sträng. v4.22: Steg 4 (första försöket) — "Skriv till sidan"-knappen skriver ikryssade event/guide till sidans befintliga fact_box/card_image_link-block via simulerad inklistring i Draftail, plus bildinfogning från befintlig bildbank. v4.21: Steg 3 — guide-förslag. v4.20: Steg 2 — hämtning/filtrering/kategorisering + checklista. v4.19: Steg 1 — flik, månadsväljare, inställningsfält. Äldre versioner: se git-historiken.
+// @version      4.37
+// @description  v4.37: Alt+klick laddade ner länkmålet och la inte till eventet på sidor utanför event-/events-sökvägarna — @match breddas till hela visitstockholm.se/com och widgeten byggs på ALLA publika (icke-CMS) sidor; alt+klick preventDefault:as FÖR kategorikollen så webbläsarens nedladdning stoppas alltid; kategorirubrikerna är fetställda med kryssruta som visar aktuell kategori + antal sparade event per kategori. v4.36: Widgeten gick inte att minimera och rensa-knappen saknade lyssnare (fanns i HTML:en men gjorde inget); kategorirubrikerna är nu riktiga knappar; guidegardin-renderingen är try/catch-ad så ett fel där inte längre kan döda panelens tabblyssnare (orsaken till att tabben inte gick att klicka på). v4.35: WHAT'S ON-OMTAG: nytt alt+klick-flöde — välj kategori i widgeten på event-/listsidor (nu även @match:ade) och alt+klicka eventlänkar för att samla dem i GM-minne (namn visas, ta bort/drag-drop mellan kategorier, rensa-knapp); i CMS:et fyller [Svenska]/[Engelska] sidans kategorisektioner med samma HTML-struktur som befintligt innehåll — SV ersätter månaden helt och uppdaterar titelns månad, EN staplar på under föregående månader; guidegardin med sök över månadsguideförslagen, ett guideval per card-kort. v4.34: Översättningen bevarar nu källformateringen i Draftail-fält — rubriker, fetstil, länkar och inlagda bilder — genom segmentvis översättning direkt i draft.js-JSON med omräknade offsets; Mistral instrueras alltid använda n-dash med mellanslag ( – ) i stället för em-dash utan mellanslag (—) och svar med em-dash skickas tillbaka upp till 3 gånger innan mekanisk sanering. v4.33: GM-kontext-flaggan (sid-fetch för resten av sessionen) triggas nu även av "Could not establish connection" och "SBR-bot-bryggan kunde inte nå service workern" — tidigare bara "Extension context invalidated" — så en död GM-brygga inte loggas om och försöks om vid varje anrop. v4.32: Översättningsfunktionen missade preamble (textarea), fact_box-modulernas rubriktext (extended_rich_text-N-value-html, Draftail) och card_image_link-modulernas title/text/link-text — TRANSLATABLE_FIELDS var en statisk lista som bara täckte fasta sidfält. Fältlistan byggs nu dynamiskt per körning och plockar med alla streamfield-block i extended rich text, men ALDRIG URL- (link-url/link-page), bild- eller bakgrundsfält. v4.31: Draftail-fält på vissa sid-sidor gick inte att fylla i — loggen visade "root-nycklar: 0", dvs. React sätter aldrig __reactFiber$/__reactProps$ på .DraftEditor-root där, så props-vandringen kan aldrig lyckas. När React-props saknas körs nu en paste-reserv (portrerad från EventBot v7.97.9): riktig paste-händelse → execCommand → dolt input-fält, en metod i taget med verifiering mot det dolda draft.js-fältet mellan varje steg. v4.30: inställningar överlever uppdatering, What's On fler event, GM-kontext-reserv, Draftail React 17+-props. v4.23: Fixat "Skriv till sidan" som inte gjorde något — orsaken var att kategori→sektion-mappningen (WHAT'S ON) bara kände till engelska slugs, medan API:et på .se-domänen faktiskt returnerar lokaliserade SVENSKA kategorietiketter ("musik", "scen & film", "utställningar"), bekräftat via en riktig körning där ALLA 228 event hamnade i "Övrigt" istället för Konserter/Scen & film/Museer. Lade till de svenska etiketterna i CATEGORY_TO_SECTION. Fixade även en "[object Object]"-bugg när ett kategorifält är ett objekt ({id,name}) istället för en sträng. v4.22: Steg 4 (första försöket) — "Skriv till sidan"-knappen skriver ikryssade event/guide till sidans befintliga fact_box/card_image_link-block via simulerad inklistring i Draftail, plus bildinfogning från befintlig bildbank. v4.21: Steg 3 — guide-förslag. v4.20: Steg 2 — hämtning/filtrering/kategorisering + checklista. v4.19: Steg 1 — flik, månadsväljare, inställningsfält. Äldre versioner: se git-historiken.
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.com/cms/pages/*/edit/*
 // @match        https://www.visitstockholm.se/cms/pages/*/edit/*
 // @match        https://www.visitstockholm.com/cms/images/*
+// @match        https://www.visitstockholm.se/*
+// @match        https://www.visitstockholm.com/*
 // @match        https://www.visitstockholm.se/event/*
 // @match        https://www.visitstockholm.com/events/*
 // @match        https://www.visitstockholm.se/cms/images/*
@@ -1036,7 +1038,9 @@
 
   // ===== WHAT'S ON v2: widget på event- och guidesidor =====
   function isWhatsOn2CollectPage() {
-    return /\/events?($|\/)/.test(location.pathname) && !/\/cms\//.test(location.pathname);
+    // ALLA publika sidor (icke-CMS): widget + alt+klick ska funka var som
+    // helst man hittar eventlänkar — event-sidor, Biggest Events-sidor osv.
+    return !/\/cms\//.test(location.pathname);
   }
 
   function buildWhatsOn2Widget() {
@@ -1049,7 +1053,8 @@
         border-radius: 8px; z-index: 99999; font: 12px/1.45 system-ui, sans-serif; padding: 10px; }
       #sb2-bar h4 { margin: 0 0 6px; font-size: 13px; }
       #sb2-bar .sb2-cat { display: block; padding: 6px; margin: 4px 0; border: 1px solid var(--vd-line, #3a3f4b);
-        border-radius: 6px; cursor: pointer; }
+        border-radius: 6px; cursor: pointer; font-weight: 700; }
+      #sb2-bar .sb2-cat input { margin-right: 4px; }
       #sb2-bar .sb2-cat.active { background: var(--vd-accent, #4a9fe0); color: #fff; }
       #sb2-bar .sb2-head { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
       #sb2-bar .sb2-list { margin: 6px 0; }
@@ -1112,8 +1117,13 @@
     if (!cats) return;
     const isSv = location.hostname.includes('visitstockholm.se');
     const labels = isSv ? WHATSON2_LABELS_SV : WHATSON2_LABELS_EN;
+    // Fetställda knappar med KRYSSRUTA som visar aktuell kategori.
+    const mem0 = whatsOn2Load();
+    const active = whatsOn2ActiveSection();
     cats.innerHTML = WHATSON2_SECTIONS.map(k =>
-      '<button type="button" class="sb2-cat" data-section="' + k + '">' + labels[k] + '</button>').join('');
+      '<label class="sb2-cat' + (active === k ? ' active' : '') + '" data-section="' + k + '">' +
+      '<input type="checkbox"' + (active === k ? ' checked' : '') + '> ' +
+      '<strong>' + labels[k] + ' (' + (((mem0.sections || {})[k] || []).length) + ')</strong></label>').join('');
     const mem = whatsOn2Load();
     const items = document.getElementById('sb2-items');
     const current = whatsOn2ActiveSection();
@@ -1130,9 +1140,16 @@
     }
     items.innerHTML = count ? html : '<div class="sb2-tip">Inga event sparade ännu.</div>';
     document.querySelectorAll('#sb2-cats .sb2-cat').forEach(a => {
-      a.addEventListener('click', () => {
-        document.querySelectorAll('#sb2-cats .sb2-cat').forEach(x => x.classList.remove('active'));
+      a.addEventListener('click', e => {
+        e.preventDefault();
+        document.querySelectorAll('#sb2-cats .sb2-cat').forEach(x => {
+          x.classList.remove('active');
+          const cb = x.querySelector('input[type="checkbox"]');
+          if (cb) cb.checked = false;
+        });
         a.classList.add('active');
+        const cb = a.querySelector('input[type="checkbox"]');
+        if (cb) cb.checked = true;
         renderWhatsOn2Widget();
       });
     });
@@ -1185,14 +1202,16 @@
   function installWhatsOn2AltClickListener() {
     document.addEventListener('click', e => {
       if (!e.altKey || e.ctrlKey || e.shiftKey || e.metaKey) return;
-      const a = e.target.closest('a[href]');
+      const a = e.target.closest && e.target.closest('a[href]');
       if (!a) return;
       const href = a.href;
       if (!isEventUrl(href)) return;
-      const sectionKey = whatsOn2ActiveSection();
-      if (!sectionKey) { vlog("WHAT'S ON: välj en kategori i widgeten först (alt+klick utan kategori gör inget).", 'warn'); return; }
+      // SToppa webbläsarens default FÖRST — annars laddar alt+klick ner
+      // länkmålet i vissa webbläsare innan vi hinner lägga till eventet.
       e.preventDefault();
       e.stopPropagation();
+      const sectionKey = whatsOn2ActiveSection();
+      if (!sectionKey) { vlog("WHAT'S ON: välj en kategori i widgeten först — alt+klicket fångades men la inte till eventet.", 'warn'); return; }
       whatsOn2Add(href, sectionKey).then(added => {
         vlog(added ? "WHAT'S ON: la till \"" + href + "\" under " + sectionKey + "." :
                      "WHAT'S ON: eventet finns redan under " + sectionKey + ".", added ? 'ok' : 'warn');
@@ -4158,15 +4177,16 @@ function buildPanel() {
   } else if (isWhatsOn2EditPage()) {
     buildPanel();
   } else if (isWhatsOn2CollectPage()) {
-    // Evenemangs-/listsidor: samlingswidgeten + alt+klick (ingen EditorBot-panel).
+    // Publika sidor (event-/listsidor, Biggest Events osv.): samlingswidgeten
+    // + alt+klick. Ingen EditorBot-panel och ingen CMS-bildhanteringslisten.
     buildWhatsOn2Widget();
     installWhatsOn2AltClickListener();
-    buildImageHandlingBar();
+    return;
   } else {
     buildPanel();
   }
-  // Toppraden i bildvyn behövs på ALLA sidor — bilduppladdningsmodalen
-  // kan öppnas var som helst i CMS:et.
+  // Toppraden i bildvyn behövs på CMS-sidorna — bilduppladdningsmodalen
+  // kan öppnas var som helst i CMS:et (publika sidor returnerar ovan).
   buildImageHandlingBar();
 
   // WHAT'S ON: klick på en sektionsrubrik fäller in/ut sektionens lista
