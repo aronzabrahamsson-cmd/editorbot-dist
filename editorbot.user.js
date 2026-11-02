@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      4.40
-// @description  v4.40: What's On-minnet försvann vid siduppdatering och syntes inte i CMS-fliken — minnet skrivs nu DUBBELT (GM + localStorage) och läses SAMMANSLAGET (union per event-URL) med synk vid varje sidladdning, så en död/domän-scoped GM-brygga aldrig kan förlora samlingen; CMS-fliken visar nu en live-lista över sparade event per kategori (med ta-bort-knappar) så du ser exakt vad Fyll i-knapparna kommer arbeta med. v4.39: ROTORSAKEN till döda tabbar/knappar: v4.35-omskrivningen tog bort definitionerna av populateWhatsOnMonthDropdown, setWhatsOnLang, getWhatsOnLang, getWhatsOnPeriodRange, buildWhatsOnMonthOptions och pasteHtmlIntoDraftail medan anropen fanns kvar — första ReferenceError i buildPanel avbröt alla lyssnar-registreringar. Samtliga återinförda från v4.34; panelen klickbar igen. v4.38: När GM-bryggan är död (SBR-bot service worker nere) kastade GM_getValue/GM_setValue och ETT kast i init-sekvensen dödade hela panelen — tabbar/logg/inställningar blev oklickbara. Alla GM-anrop går nu via säkra wrappers (sbGMGet/sbGMSet) med localStorage-fallback som aldrig kastar, och hela init-sekvensen (tema, panel, EventPortal-listen, widget) är try/catch-ad per bygge så UI:t alltid byggs även om GM-lagringen är otillgänglig. v4.37: Alt+klick laddade ner länkmålet och la inte till eventet på sidor utanför event-/events-sökvägarna — @match breddas till hela visitstockholm.se/com och widgeten byggs på ALLA publika (icke-CMS) sidor; alt+klick preventDefault:as FÖR kategorikollen så webbläsarens nedladdning stoppas alltid; kategorirubrikerna är fetställda med kryssruta som visar aktuell kategori + antal sparade event per kategori. v4.36: Widgeten gick inte att minimera och rensa-knappen saknade lyssnare (fanns i HTML:en men gjorde inget); kategorirubrikerna är nu riktiga knappar; guidegardin-renderingen är try/catch-ad så ett fel där inte längre kan döda panelens tabblyssnare (orsaken till att tabben inte gick att klicka på). v4.35: WHAT'S ON-OMTAG: nytt alt+klick-flöde — välj kategori i widgeten på event-/listsidor (nu även @match:ade) och alt+klicka eventlänkar för att samla dem i GM-minne (namn visas, ta bort/drag-drop mellan kategorier, rensa-knapp); i CMS:et fyller [Svenska]/[Engelska] sidans kategorisektioner med samma HTML-struktur som befintligt innehåll — SV ersätter månaden helt och uppdaterar titelns månad, EN staplar på under föregående månader; guidegardin med sök över månadsguideförslagen, ett guideval per card-kort. v4.34: Översättningen bevarar nu källformateringen i Draftail-fält — rubriker, fetstil, länkar och inlagda bilder — genom segmentvis översättning direkt i draft.js-JSON med omräknade offsets; Mistral instrueras alltid använda n-dash med mellanslag ( – ) i stället för em-dash utan mellanslag (—) och svar med em-dash skickas tillbaka upp till 3 gånger innan mekanisk sanering. v4.33: GM-kontext-flaggan (sid-fetch för resten av sessionen) triggas nu även av "Could not establish connection" och "SBR-bot-bryggan kunde inte nå service workern" — tidigare bara "Extension context invalidated" — så en död GM-brygga inte loggas om och försöks om vid varje anrop. v4.32: Översättningsfunktionen missade preamble (textarea), fact_box-modulernas rubriktext (extended_rich_text-N-value-html, Draftail) och card_image_link-modulernas title/text/link-text — TRANSLATABLE_FIELDS var en statisk lista som bara täckte fasta sidfält. Fältlistan byggs nu dynamiskt per körning och plockar med alla streamfield-block i extended rich text, men ALDRIG URL- (link-url/link-page), bild- eller bakgrundsfält. v4.31: Draftail-fält på vissa sid-sidor gick inte att fylla i — loggen visade "root-nycklar: 0", dvs. React sätter aldrig __reactFiber$/__reactProps$ på .DraftEditor-root där, så props-vandringen kan aldrig lyckas. När React-props saknas körs nu en paste-reserv (portrerad från EventBot v7.97.9): riktig paste-händelse → execCommand → dolt input-fält, en metod i taget med verifiering mot det dolda draft.js-fältet mellan varje steg. v4.30: inställningar överlever uppdatering, What's On fler event, GM-kontext-reserv, Draftail React 17+-props. v4.23: Fixat "Skriv till sidan" som inte gjorde något — orsaken var att kategori→sektion-mappningen (WHAT'S ON) bara kände till engelska slugs, medan API:et på .se-domänen faktiskt returnerar lokaliserade SVENSKA kategorietiketter ("musik", "scen & film", "utställningar"), bekräftat via en riktig körning där ALLA 228 event hamnade i "Övrigt" istället för Konserter/Scen & film/Museer. Lade till de svenska etiketterna i CATEGORY_TO_SECTION. Fixade även en "[object Object]"-bugg när ett kategorifält är ett objekt ({id,name}) istället för en sträng. v4.22: Steg 4 (första försöket) — "Skriv till sidan"-knappen skriver ikryssade event/guide till sidans befintliga fact_box/card_image_link-block via simulerad inklistring i Draftail, plus bildinfogning från befintlig bildbank. v4.21: Steg 3 — guide-förslag. v4.20: Steg 2 — hämtning/filtrering/kategorisering + checklista. v4.19: Steg 1 — flik, månadsväljare, inställningsfält. Äldre versioner: se git-historiken.
+// @version      4.41
+// @description  v4.41: "Fyll i what's on" skrev innehållet i fact_box-blocken men det försvann vid sparning — HTML-paste tog sig aldrig in i Draftails React-state som skrev över det dolda fältet. Sektionerna byggs nu som draft.js-JSON (h2-rubrik, ul-block med länk/fetstil/kursiv-format, avslutande bläddringslänk, entityMap med LINK-entiteter) och skrivs via writeDraftailJSON — samma väg som den strukturbevarande översättningen, som är verifierad att överleva sparning. EN-grenen infogar nya block före avslutnings-p:et med dubblettskydd. v4.40: What's On-minnet försvann vid siduppdatering och syntes inte i CMS-fliken — minnet skrivs nu DUBBELT (GM + localStorage) och läses SAMMANSLAGET (union per event-URL) med synk vid varje sidladdning, så en död/domän-scoped GM-brygga aldrig kan förlora samlingen; CMS-fliken visar nu en live-lista över sparade event per kategori (med ta-bort-knappar) så du ser exakt vad Fyll i-knapparna kommer arbeta med. v4.39: ROTORSAKEN till döda tabbar/knappar: v4.35-omskrivningen tog bort definitionerna av populateWhatsOnMonthDropdown, setWhatsOnLang, getWhatsOnLang, getWhatsOnPeriodRange, buildWhatsOnMonthOptions och pasteHtmlIntoDraftail medan anropen fanns kvar — första ReferenceError i buildPanel avbröt alla lyssnar-registreringar. Samtliga återinförda från v4.34; panelen klickbar igen. v4.38: När GM-bryggan är död (SBR-bot service worker nere) kastade GM_getValue/GM_setValue och ETT kast i init-sekvensen dödade hela panelen — tabbar/logg/inställningar blev oklickbara. Alla GM-anrop går nu via säkra wrappers (sbGMGet/sbGMSet) med localStorage-fallback som aldrig kastar, och hela init-sekvensen (tema, panel, EventPortal-listen, widget) är try/catch-ad per bygge så UI:t alltid byggs även om GM-lagringen är otillgänglig. v4.37: Alt+klick laddade ner länkmålet och la inte till eventet på sidor utanför event-/events-sökvägarna — @match breddas till hela visitstockholm.se/com och widgeten byggs på ALLA publika (icke-CMS) sidor; alt+klick preventDefault:as FÖR kategorikollen så webbläsarens nedladdning stoppas alltid; kategorirubrikerna är fetställda med kryssruta som visar aktuell kategori + antal sparade event per kategori. v4.36: Widgeten gick inte att minimera och rensa-knappen saknade lyssnare (fanns i HTML:en men gjorde inget); kategorirubrikerna är nu riktiga knappar; guidegardin-renderingen är try/catch-ad så ett fel där inte längre kan döda panelens tabblyssnare (orsaken till att tabben inte gick att klicka på). v4.35: WHAT'S ON-OMTAG: nytt alt+klick-flöde — välj kategori i widgeten på event-/listsidor (nu även @match:ade) och alt+klicka eventlänkar för att samla dem i GM-minne (namn visas, ta bort/drag-drop mellan kategorier, rensa-knapp); i CMS:et fyller [Svenska]/[Engelska] sidans kategorisektioner med samma HTML-struktur som befintligt innehåll — SV ersätter månaden helt och uppdaterar titelns månad, EN staplar på under föregående månader; guidegardin med sök över månadsguideförslagen, ett guideval per card-kort. v4.34: Översättningen bevarar nu källformateringen i Draftail-fält — rubriker, fetstil, länkar och inlagda bilder — genom segmentvis översättning direkt i draft.js-JSON med omräknade offsets; Mistral instrueras alltid använda n-dash med mellanslag ( – ) i stället för em-dash utan mellanslag (—) och svar med em-dash skickas tillbaka upp till 3 gånger innan mekanisk sanering. v4.33: GM-kontext-flaggan (sid-fetch för resten av sessionen) triggas nu även av "Could not establish connection" och "SBR-bot-bryggan kunde inte nå service workern" — tidigare bara "Extension context invalidated" — så en död GM-brygga inte loggas om och försöks om vid varje anrop. v4.32: Översättningsfunktionen missade preamble (textarea), fact_box-modulernas rubriktext (extended_rich_text-N-value-html, Draftail) och card_image_link-modulernas title/text/link-text — TRANSLATABLE_FIELDS var en statisk lista som bara täckte fasta sidfält. Fältlistan byggs nu dynamiskt per körning och plockar med alla streamfield-block i extended rich text, men ALDRIG URL- (link-url/link-page), bild- eller bakgrundsfält. v4.31: Draftail-fält på vissa sid-sidor gick inte att fylla i — loggen visade "root-nycklar: 0", dvs. React sätter aldrig __reactFiber$/__reactProps$ på .DraftEditor-root där, så props-vandringen kan aldrig lyckas. När React-props saknas körs nu en paste-reserv (portrerad från EventBot v7.97.9): riktig paste-händelse → execCommand → dolt input-fält, en metod i taget med verifiering mot det dolda draft.js-fältet mellan varje steg. v4.30: inställningar överlever uppdatering, What's On fler event, GM-kontext-reserv, Draftail React 17+-props. v4.23: Fixat "Skriv till sidan" som inte gjorde något — orsaken var att kategori→sektion-mappningen (WHAT'S ON) bara kände till engelska slugs, medan API:et på .se-domänen faktiskt returnerar lokaliserade SVENSKA kategorietiketter ("musik", "scen & film", "utställningar"), bekräftat via en riktig körning där ALLA 228 event hamnade i "Övrigt" istället för Konserter/Scen & film/Museer. Lade till de svenska etiketterna i CATEGORY_TO_SECTION. Fixade även en "[object Object]"-bugg när ett kategorifält är ett objekt ({id,name}) istället för en sträng. v4.22: Steg 4 (första försöket) — "Skriv till sidan"-knappen skriver ikryssade event/guide till sidans befintliga fact_box/card_image_link-block via simulerad inklistring i Draftail, plus bildinfogning från befintlig bildbank. v4.21: Steg 3 — guide-förslag. v4.20: Steg 2 — hämtning/filtrering/kategorisering + checklista. v4.19: Steg 1 — flik, månadsväljare, inställningsfält. Äldre versioner: se git-historiken.
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.com/cms/pages/*/edit/*
@@ -1550,6 +1550,74 @@
     }
   }
 
+  // ===== WHAT'S ON v2: draft.js-konstruktion (ersätter HTML-paste) =====
+  // HTML-paste i fact_box-blocken tog sig ALDRIG in i Draftails React-state —
+  // det dolda fältet verkade uppdaterat men React skrev \u00f6ver det vid sparning
+  // (bevisat: sparat utkast tomt). Blocken byggs d\u00e4rf\u00f6r som draft.js-JSON och
+  // skrivs via writeDraftailJSON — samma v\u00e4g som den strukturbevarande
+  // \u00f6vers\u00e4ttningen, som \u00e4r verifierad att \u00f6verleva sparning.
+  function draftKey() { return 'sb' + Math.random().toString(36).slice(2, 8); }
+
+  // En event-rad som draft-block: titel(l\u00e4nk) datum(kursiv/fetstil via styles) – beskrivning
+  function whatsonEventBlock(ev, lang) {
+    const dateStr = formatEventDateRange(ev, lang);
+    const desc = ev.description
+      ? ' \u2013 ' + (ev._polished ? String(ev.description).replace(/\s+/g, ' ').trim() : truncateDescription(ev.description, 160))
+      : '';
+    const fullText = ev.title + ' ' + dateStr + desc;
+    // Fetstil: titel (0..title.length), och datumsektionen f\u00e5r BOLD+ITALIC.
+    const dateOffset = ev.title.length + 1;
+    return {
+      key: draftKey(),
+      text: fullText,
+      type: 'unordered-list-item',
+      depth: 0,
+      inlineStyleRanges: [
+        { offset: 0, length: ev.title.length, style: 'BOLD' },
+        { offset: dateOffset, length: dateStr.length, style: 'BOLD' },
+        { offset: dateOffset, length: dateStr.length, style: 'ITALIC' }
+      ],
+      entityRanges: [{ offset: 0, length: ev.title.length, key: 0 }],
+      data: {}
+    };
+  }
+
+  // Hela sektionen som draft.js-content: tom inledande p (plats f\u00f6r bild),
+  // h2-rubrik, event-block, avslutande p med bl\u00e4ddringsl\u00e4nk.
+  // eventLinkKeys: mapping block-idx -> entityMap-nyckel fylls av anroparen.
+  function buildWhatsOn2SectionContent(sectionKey, events, lang, monthStart, monthEnd) {
+    const meta = SECTION_CONTENT_META[sectionKey];
+    if (!meta) return null;
+    const title = lang === 'sv' ? meta.titleSv : meta.titleEn;
+    const closing = lang === 'sv' ? meta.closingSv : meta.closingEn;
+    const closingLink = lang === 'sv' ? meta.closingLinkSv : meta.closingLinkEn;
+    const base = eventsBrowseBaseUrl(lang);
+    const dateFrom = monthStart.toISOString().slice(0, 10);
+    const dateTo = monthEnd.toISOString().slice(0, 10);
+    const browseUrl = base + '?date_from=' + dateFrom + '&date_to=' + dateTo + '&categories=' + meta.browseCategory;
+    const entityMap = { nextKey: 0 };
+    const blocks = [
+      { key: draftKey(), text: '', type: 'unstyled', depth: 0, inlineStyleRanges: [], entityRanges: [], data: {} },
+      { key: draftKey(), text: title, type: 'header-two', depth: 0, inlineStyleRanges: [], entityRanges: [], data: {} }
+    ];
+    events.forEach(ev => {
+      const b = whatsonEventBlock(ev, lang);
+      const linkKey = 'wo' + blocks.length;
+      b.entityRanges = [{ offset: 0, length: ev.title.length, key: linkKey }];
+      entityMap[linkKey] = { type: 'LINK', mutability: 'MUTABLE', data: { href: ev.href } };
+      blocks.push(b);
+    });
+    const closingText = closing + closingLink;
+    const closeKey = 'wo' + blocks.length;
+    blocks.push({
+      key: draftKey(), text: closingText, type: 'unstyled', depth: 0,
+      inlineStyleRanges: [], entityRanges: [{ offset: closing.length, length: closingLink.length, key: closeKey }], data: {}
+    });
+    entityMap[closeKey] = { type: 'LINK', mutability: 'MUTABLE', data: { href: browseUrl } };
+    delete entityMap.nextKey;
+    return { blocks, entityMap };
+  }
+
   // Huvudfunktion: Fyll i what's on-info [sv]/[en]
   async function fillWhatsOn2(lang) {
     if (busy) return;
@@ -1604,16 +1672,39 @@
         const fieldId = 'extended_rich_text-' + target.index + '-value-html';
         let ok;
         if (lang === 'sv') {
-          // SV: ersätt hela blocket med månadens innehåll.
-          const html = buildWhatsOn2SectionHtml(sectionKey, events, lang, monthStart, monthEnd);
-          ok = await pasteHtmlIntoDraftail(fieldId, html);
+          // SV: ersätt hela blocket med månadens innehåll — via draft.js-JSON
+          // (HTML-paste skrevs över av React vid sparning).
+          const content = buildWhatsOn2SectionContent(sectionKey, events, lang, monthStart, monthEnd);
+          ok = content ? writeDraftailJSON(fieldId, content) : false;
         } else {
-          // EN: lägg till nya li-rader sist i befintlig lista — hoppa över
-          // event som redan finns i blocket (dubblettskydd).
-          const existing = readDraftailText(fieldId) || '';
-          const fresh = events.filter(ev => !existing.includes(ev.title));
+          // EN: LÄGG TILL event-block i befintligt innehåll (föregående
+          // månader behålls) via draft.js: befintliga block + nya block
+          // före avslutnings-p:et. Dubblettskydd per titel.
+          const cur = readDraftailJSON(fieldId);
+          if (!cur) {
+            vlog("WHAT'S ON: kunde inte läsa befintligt innehåll i " + fieldId + ' — hoppar över.', 'err');
+            continue;
+          }
+          const existingText = (cur.blocks || []).map(b => b.text || '').join('\n');
+          const fresh = events.filter(ev => !existingText.includes(ev.title));
           if (!fresh.length) { vlog("WHAT'S ON: alla event för \"" + sectionKey + '" finns redan — hoppar över.', 'ok'); continue; }
-          ok = await appendHtmlIntoDraftail(fieldId, buildWhatsOn2AppendLis(fresh, lang));
+          const entityMap = Object.assign({}, cur.entityMap || {});
+          const newBlocks = fresh.map(ev => {
+            const b = whatsonEventBlock(ev, lang);
+            const linkKey = 'wo' + Math.random().toString(36).slice(2, 10);
+            b.entityRanges = [{ offset: 0, length: ev.title.length, key: linkKey }];
+            entityMap[linkKey] = { type: 'LINK', mutability: 'MUTABLE', data: { href: ev.href } };
+            return b;
+          });
+          // Infoga nya block FÖRE det avslutande p:et (sista unstyled-blocket
+          // med en länkentitet), annars på slutet.
+          let insertAt = cur.blocks.length;
+          for (let i = cur.blocks.length - 1; i >= 0; i--) {
+            const b = cur.blocks[i];
+            if ((b.entityRanges || []).length && b.type === 'unstyled') { insertAt = i; break; }
+          }
+          const merged = { blocks: [...cur.blocks.slice(0, insertAt), ...newBlocks, ...cur.blocks.slice(insertAt)], entityMap };
+          ok = writeDraftailJSON(fieldId, merged);
         }
         if (!ok) { vlog("WHAT'S ON: kunde inte skriva sektionen \"" + sectionKey + '".', 'err'); continue; }
         written++;
