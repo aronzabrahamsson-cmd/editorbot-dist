@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      4.44
-// @description  v4.44: 'gmContextDead is not defined' vid varje Mistral-anrop — deklarationen föll bort i ett sektionsbyte så agenten kraschade och titel-hämtningen med den (URL:er visades i stället för sidrubriker). Deklarationen återinförd, titel-hämtningen har sid-fetch-reserv och får aldrig visa URL som titel; kategori-emojis i både widgeten och CMS-panelen; kryssrutan på kategorierna ersatt av ren aktiv-markering. v4.43: Övrigt-rubriken är nu HÖJDPUNKTER och ligger FÖRST — den motsvarar sidans rich_text-fält och fylls med h2-rubriken "Månadens höjdpunkter" + eventlista när Fyll i körs; CMS-panelens minneslista speglar nu sidans faktiska blockordning (Höjdpunkter, sedan varje fact_box-ruta med sin kategori, och sidans card_image_link-block visas som kortväljare mellan rubrikerna) så panelen ser ut som sidan. v4.42: Fact_box-innehållet skrevs men något (React re-render/lås-polling) återställde editorns state och raderade det vid sparning — ny skriv-vakt pollar det dolda fältet i 6 s efter skrivning, skriver OM automatiskt upp till 3 gånger om något skriver över det, och loggar diagnostik (visar den synliga editorn det nya innehållet?) så exakt läge syns i loggen. v4.41: "Fyll i what's on" skrev innehållet i fact_box-blocken men det försvann vid sparning — HTML-paste tog sig aldrig in i Draftails React-state som skrev över det dolda fältet. Sektionerna byggs nu som draft.js-JSON (h2-rubrik, ul-block med länk/fetstil/kursiv-format, avslutande bläddringslänk, entityMap med LINK-entiteter) och skrivs via writeDraftailJSON — samma väg som den strukturbevarande översättningen, som är verifierad att överleva sparning. EN-grenen infogar nya block före avslutnings-p:et med dubblettskydd. v4.40: What's On-minnet försvann vid siduppdatering och syntes inte i CMS-fliken — minnet skrivs nu DUBBELT (GM + localStorage) och läses SAMMANSLAGET (union per event-URL) med synk vid varje sidladdning, så en död/domän-scoped GM-brygga aldrig kan förlora samlingen; CMS-fliken visar nu en live-lista över sparade event per kategori (med ta-bort-knappar) så du ser exakt vad Fyll i-knapparna kommer arbeta med. v4.39: ROTORSAKEN till döda tabbar/knappar: v4.35-omskrivningen tog bort definitionerna av populateWhatsOnMonthDropdown, setWhatsOnLang, getWhatsOnLang, getWhatsOnPeriodRange, buildWhatsOnMonthOptions och pasteHtmlIntoDraftail medan anropen fanns kvar — första ReferenceError i buildPanel avbröt alla lyssnar-registreringar. Samtliga återinförda från v4.34; panelen klickbar igen. v4.38: När GM-bryggan är död (SBR-bot service worker nere) kastade GM_getValue/GM_setValue och ETT kast i init-sekvensen dödade hela panelen — tabbar/logg/inställningar blev oklickbara. Alla GM-anrop går nu via säkra wrappers (sbGMGet/sbGMSet) med localStorage-fallback som aldrig kastar, och hela init-sekvensen (tema, panel, EventPortal-listen, widget) är try/catch-ad per bygge så UI:t alltid byggs även om GM-lagringen är otillgänglig. v4.37: Alt+klick laddade ner länkmålet och la inte till eventet på sidor utanför event-/events-sökvägarna — @match breddas till hela visitstockholm.se/com och widgeten byggs på ALLA publika (icke-CMS) sidor; alt+klick preventDefault:as FÖR kategorikollen så webbläsarens nedladdning stoppas alltid; kategorirubrikerna är fetställda med kryssruta som visar aktuell kategori + antal sparade event per kategori. v4.36: Widgeten gick inte att minimera och rensa-knappen saknade lyssnare (fanns i HTML:en men gjorde inget); kategorirubrikerna är nu riktiga knappar; guidegardin-renderingen är try/catch-ad så ett fel där inte längre kan döda panelens tabblyssnare (orsaken till att tabben inte gick att klicka på). v4.35: WHAT'S ON-OMTAG: nytt alt+klick-flöde — välj kategori i widgeten på event-/listsidor (nu även @match:ade) och alt+klicka eventlänkar för att samla dem i GM-minne (namn visas, ta bort/drag-drop mellan kategorier, rensa-knapp); i CMS:et fyller [Svenska]/[Engelska] sidans kategorisektioner med samma HTML-struktur som befintligt innehåll — SV ersätter månaden helt och uppdaterar titelns månad, EN staplar på under föregående månader; guidegardin med sök över månadsguideförslagen, ett guideval per card-kort. v4.34: Översättningen bevarar nu källformateringen i Draftail-fält — rubriker, fetstil, länkar och inlagda bilder — genom segmentvis översättning direkt i draft.js-JSON med omräknade offsets; Mistral instrueras alltid använda n-dash med mellanslag ( – ) i stället för em-dash utan mellanslag (—) och svar med em-dash skickas tillbaka upp till 3 gånger innan mekanisk sanering. v4.33: GM-kontext-flaggan (sid-fetch för resten av sessionen) triggas nu även av "Could not establish connection" och "SBR-bot-bryggan kunde inte nå service workern" — tidigare bara "Extension context invalidated" — så en död GM-brygga inte loggas om och försöks om vid varje anrop. v4.32: Översättningsfunktionen missade preamble (textarea), fact_box-modulernas rubriktext (extended_rich_text-N-value-html, Draftail) och card_image_link-modulernas title/text/link-text — TRANSLATABLE_FIELDS var en statisk lista som bara täckte fasta sidfält. Fältlistan byggs nu dynamiskt per körning och plockar med alla streamfield-block i extended rich text, men ALDRIG URL- (link-url/link-page), bild- eller bakgrundsfält. v4.31: Draftail-fält på vissa sid-sidor gick inte att fylla i — loggen visade "root-nycklar: 0", dvs. React sätter aldrig __reactFiber$/__reactProps$ på .DraftEditor-root där, så props-vandringen kan aldrig lyckas. När React-props saknas körs nu en paste-reserv (portrerad från EventBot v7.97.9): riktig paste-händelse → execCommand → dolt input-fält, en metod i taget med verifiering mot det dolda draft.js-fältet mellan varje steg. v4.30: inställningar överlever uppdatering, What's On fler event, GM-kontext-reserv, Draftail React 17+-props. v4.23: Fixat "Skriv till sidan" som inte gjorde något — orsaken var att kategori→sektion-mappningen (WHAT'S ON) bara kände till engelska slugs, medan API:et på .se-domänen faktiskt returnerar lokaliserade SVENSKA kategorietiketter ("musik", "scen & film", "utställningar"), bekräftat via en riktig körning där ALLA 228 event hamnade i "Övrigt" istället för Konserter/Scen & film/Museer. Lade till de svenska etiketterna i CATEGORY_TO_SECTION. Fixade även en "[object Object]"-bugg när ett kategorifält är ett objekt ({id,name}) istället för en sträng. v4.22: Steg 4 (första försöket) — "Skriv till sidan"-knappen skriver ikryssade event/guide till sidans befintliga fact_box/card_image_link-block via simulerad inklistring i Draftail, plus bildinfogning från befintlig bildbank. v4.21: Steg 3 — guide-förslag. v4.20: Steg 2 — hämtning/filtrering/kategorisering + checklista. v4.19: Steg 1 — flik, månadsväljare, inställningsfält. Äldre versioner: se git-historiken.
+// @version      4.45
+// @description  v4.45: WHAT'S ON v3 — drag-and-drop direkt i CMS: hela insamlingsflödet (widget på webben, alt+klick, GM-minne, Fyll i-knappar) är BORTTAGET; istället får varje blockruta (Höjdpunkter/rich_text, varje fact_box, varje card_image_link-kort) en blå drop-zon där event-URL:er släpps från kalendern, en Generera-knapp per ruta + en global, språket styrs av domänen (.se ersätter månaden helt, .com staplar på), kort fylls från guidesidans SEO-fält (title/text/link-text/link-url) utan agent, fact-box-event hämtar titel/datum/beskrivning via sid-fetch och agenten skriver husstils-beskrivningar; @match tillbaka till endast CMS-sidor. v4.44: 'gmContextDead is not defined' vid varje Mistral-anrop — deklarationen föll bort i ett sektionsbyte så agenten kraschade och titel-hämtningen med den (URL:er visades i stället för sidrubriker). Deklarationen återinförd, titel-hämtningen har sid-fetch-reserv och får aldrig visa URL som titel; kategori-emojis i både widgeten och CMS-panelen; kryssrutan på kategorierna ersatt av ren aktiv-markering. v4.43: Övrigt-rubriken är nu HÖJDPUNKTER och ligger FÖRST — den motsvarar sidans rich_text-fält och fylls med h2-rubriken "Månadens höjdpunkter" + eventlista när Fyll i körs; CMS-panelens minneslista speglar nu sidans faktiska blockordning (Höjdpunkter, sedan varje fact_box-ruta med sin kategori, och sidans card_image_link-block visas som kortväljare mellan rubrikerna) så panelen ser ut som sidan. v4.42: Fact_box-innehållet skrevs men något (React re-render/lås-polling) återställde editorns state och raderade det vid sparning — ny skriv-vakt pollar det dolda fältet i 6 s efter skrivning, skriver OM automatiskt upp till 3 gånger om något skriver över det, och loggar diagnostik (visar den synliga editorn det nya innehållet?) så exakt läge syns i loggen. v4.41: "Fyll i what's on" skrev innehållet i fact_box-blocken men det försvann vid sparning — HTML-paste tog sig aldrig in i Draftails React-state som skrev över det dolda fältet. Sektionerna byggs nu som draft.js-JSON (h2-rubrik, ul-block med länk/fetstil/kursiv-format, avslutande bläddringslänk, entityMap med LINK-entiteter) och skrivs via writeDraftailJSON — samma väg som den strukturbevarande översättningen, som är verifierad att överleva sparning. EN-grenen infogar nya block före avslutnings-p:et med dubblettskydd. v4.40: What's On-minnet försvann vid siduppdatering och syntes inte i CMS-fliken — minnet skrivs nu DUBBELT (GM + localStorage) och läses SAMMANSLAGET (union per event-URL) med synk vid varje sidladdning, så en död/domän-scoped GM-brygga aldrig kan förlora samlingen; CMS-fliken visar nu en live-lista över sparade event per kategori (med ta-bort-knappar) så du ser exakt vad Fyll i-knapparna kommer arbeta med. v4.39: ROTORSAKEN till döda tabbar/knappar: v4.35-omskrivningen tog bort definitionerna av populateWhatsOnMonthDropdown, setWhatsOnLang, getWhatsOnLang, getWhatsOnPeriodRange, buildWhatsOnMonthOptions och pasteHtmlIntoDraftail medan anropen fanns kvar — första ReferenceError i buildPanel avbröt alla lyssnar-registreringar. Samtliga återinförda från v4.34; panelen klickbar igen. v4.38: När GM-bryggan är död (SBR-bot service worker nere) kastade GM_getValue/GM_setValue och ETT kast i init-sekvensen dödade hela panelen — tabbar/logg/inställningar blev oklickbara. Alla GM-anrop går nu via säkra wrappers (sbGMGet/sbGMSet) med localStorage-fallback som aldrig kastar, och hela init-sekvensen (tema, panel, EventPortal-listen, widget) är try/catch-ad per bygge så UI:t alltid byggs även om GM-lagringen är otillgänglig. v4.37: Alt+klick laddade ner länkmålet och la inte till eventet på sidor utanför event-/events-sökvägarna — @match breddas till hela visitstockholm.se/com och widgeten byggs på ALLA publika (icke-CMS) sidor; alt+klick preventDefault:as FÖR kategorikollen så webbläsarens nedladdning stoppas alltid; kategorirubrikerna är fetställda med kryssruta som visar aktuell kategori + antal sparade event per kategori. v4.36: Widgeten gick inte att minimera och rensa-knappen saknade lyssnare (fanns i HTML:en men gjorde inget); kategorirubrikerna är nu riktiga knappar; guidegardin-renderingen är try/catch-ad så ett fel där inte längre kan döda panelens tabblyssnare (orsaken till att tabben inte gick att klicka på). v4.35: WHAT'S ON-OMTAG: nytt alt+klick-flöde — välj kategori i widgeten på event-/listsidor (nu även @match:ade) och alt+klicka eventlänkar för att samla dem i GM-minne (namn visas, ta bort/drag-drop mellan kategorier, rensa-knapp); i CMS:et fyller [Svenska]/[Engelska] sidans kategorisektioner med samma HTML-struktur som befintligt innehåll — SV ersätter månaden helt och uppdaterar titelns månad, EN staplar på under föregående månader; guidegardin med sök över månadsguideförslagen, ett guideval per card-kort. v4.34: Översättningen bevarar nu källformateringen i Draftail-fält — rubriker, fetstil, länkar och inlagda bilder — genom segmentvis översättning direkt i draft.js-JSON med omräknade offsets; Mistral instrueras alltid använda n-dash med mellanslag ( – ) i stället för em-dash utan mellanslag (—) och svar med em-dash skickas tillbaka upp till 3 gånger innan mekanisk sanering. v4.33: GM-kontext-flaggan (sid-fetch för resten av sessionen) triggas nu även av "Could not establish connection" och "SBR-bot-bryggan kunde inte nå service workern" — tidigare bara "Extension context invalidated" — så en död GM-brygga inte loggas om och försöks om vid varje anrop. v4.32: Översättningsfunktionen missade preamble (textarea), fact_box-modulernas rubriktext (extended_rich_text-N-value-html, Draftail) och card_image_link-modulernas title/text/link-text — TRANSLATABLE_FIELDS var en statisk lista som bara täckte fasta sidfält. Fältlistan byggs nu dynamiskt per körning och plockar med alla streamfield-block i extended rich text, men ALDRIG URL- (link-url/link-page), bild- eller bakgrundsfält. v4.31: Draftail-fält på vissa sid-sidor gick inte att fylla i — loggen visade "root-nycklar: 0", dvs. React sätter aldrig __reactFiber$/__reactProps$ på .DraftEditor-root där, så props-vandringen kan aldrig lyckas. När React-props saknas körs nu en paste-reserv (portrerad från EventBot v7.97.9): riktig paste-händelse → execCommand → dolt input-fält, en metod i taget med verifiering mot det dolda draft.js-fältet mellan varje steg. v4.30: inställningar överlever uppdatering, What's On fler event, GM-kontext-reserv, Draftail React 17+-props. v4.23: Fixat "Skriv till sidan" som inte gjorde något — orsaken var att kategori→sektion-mappningen (WHAT'S ON) bara kände till engelska slugs, medan API:et på .se-domänen faktiskt returnerar lokaliserade SVENSKA kategorietiketter ("musik", "scen & film", "utställningar"), bekräftat via en riktig körning där ALLA 228 event hamnade i "Övrigt" istället för Konserter/Scen & film/Museer. Lade till de svenska etiketterna i CATEGORY_TO_SECTION. Fixade även en "[object Object]"-bugg när ett kategorifält är ett objekt ({id,name}) istället för en sträng. v4.22: Steg 4 (första försöket) — "Skriv till sidan"-knappen skriver ikryssade event/guide till sidans befintliga fact_box/card_image_link-block via simulerad inklistring i Draftail, plus bildinfogning från befintlig bildbank. v4.21: Steg 3 — guide-förslag. v4.20: Steg 2 — hämtning/filtrering/kategorisering + checklista. v4.19: Steg 1 — flik, månadsväljare, inställningsfält. Äldre versioner: se git-historiken.
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.com/cms/pages/*/edit/*
@@ -946,6 +946,244 @@
     return result.ok;
   }
 
+
+  // ===== WHAT'S ON v3: DRAG-AND-DROP DIREKT I CMS =====
+  // Event-URL:er dras fr\u00e5n kalendern (annan sk\u00e4rm/delad vy) och sl\u00e4pps
+  // p\u00e5 den blockruta de ska till. Varje fact_box + rich_text f\u00e5r en synlig
+  // drop-yta som listar sl\u00e4ppta URL:er (rubrik via og:title), varje
+  // card_image_link f\u00e5r en motsvarande zon d\u00e4r guidel\u00e4nken sl\u00e4pps.
+  // Generera-knappar: en per ruta + en global i panelen. Spr\u00e5ket styrs av
+  // dom\u00e4nen (.se = SV-regler: ers\u00e4tt helt; .com = EN-regler: p\u00e5stapling).
+  const WHATSON_DROP_STORE = {}; // fieldId -> [{url, title}]
+
+  function dropLang() { return location.hostname.includes('visitstockholm.se') ? 'sv' : 'en'; }
+
+  function whatsonDropAdd(fieldId, url) {
+    if (!isEventUrl(url)) return false;
+    WHATSON_DROP_STORE[fieldId] = WHATSON_DROP_STORE[fieldId] || [];
+    if (WHATSON_DROP_STORE[fieldId].some(e => e.url === url)) return false;
+    WHATSON_DROP_STORE[fieldId].push({ url, title: '' });
+    fetchEventTitle(url).then(t => {
+      if (t) {
+        const e = WHATSON_DROP_STORE[fieldId].find(x => x.url === url);
+        if (e) { e.title = t; renderWhatsonDropZones(); }
+      }
+    });
+    return true;
+  }
+
+  // H\u00e4mtar og:title + metabeskrivning + JSON-LD-datum fr\u00e5n en URL \u2014
+  // sid-fetch f\u00f6rst s\u00e5 GM-bryggan inte kan stoppa fl\u00f6det.
+  async function whatsonFetchPageInfo(url) {
+    const info = { url, title: '', description: '', startDate: '', endDate: '' };
+    try {
+      const html = await pageFetchText(url);
+      const t = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i) ||
+                html.match(/<title[^>]*>([^<]+)<\/title>/i);
+      if (t) info.title = t[1].replace(/\s*[|-].*$/, '').trim();
+      const d = html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i) ||
+               html.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i);
+      if (d) info.description = d[1];
+      const sd = html.match(/"startDate"\s*:\s*"([^"]+)"/);
+      if (sd) info.startDate = sd[1].slice(0, 10);
+      const ed = html.match(/"endDate"\s*:\s*"([^"]+)"/);
+      if (ed) info.endDate = ed[1].slice(0, 10);
+    } catch {}
+    return info;
+  }
+
+  function buildWhatsonDropZone(fieldId, label) {
+    const wrap = document.createElement('div');
+    wrap.id = 'sbwo-drop-' + fieldId;
+    wrap.className = 'sbwo-dropzone';
+    wrap.innerHTML = '<div class="sbwo-dz-label">' + esc(label) + '</div>' +
+      '<div class="sbwo-dz-items"></div>' +
+      '<div class="sbwo-dz-btns"><button type="button" class="sbwo-gen">Generera</button>' +
+      '<button type="button" class="sbwo-clear-dz" title="Rensa sl\u00e4ppta URL:er">Rensa</button></div>';
+    return wrap;
+  }
+
+  function renderWhatsonDropZones() {
+    for (const [fieldId, items] of Object.entries(WHATSON_DROP_STORE)) {
+      const wrap = document.getElementById('sbwo-drop-' + fieldId);
+      if (!wrap) continue;
+      const list = wrap.querySelector('.sbwo-dz-items');
+      list.innerHTML = items.map((e, i) =>
+        '<div class="sbwo-dz-item" data-i="' + i + '">' +
+        (e.title ? esc(e.title) : esc(e.url)) +
+        ' <button type="button" class="sbwo-dz-del" data-i="' + i + '">\u2715</button></div>').join('') ||
+        '<span class="sbwo-dz-hint">Sl\u00e4pp URL:er h\u00e4r</span>';
+      list.querySelectorAll('.sbwo-dz-del').forEach(b => {
+        b.addEventListener('click', () => {
+          items.splice(parseInt(b.dataset.i, 10), 1);
+          renderWhatsonDropZones();
+        });
+      });
+    }
+  }
+
+  function installWhatsonDropZones() {
+    if (document.getElementById('sbwo-style')) return;
+    const style = document.createElement('style');
+    style.id = 'sbwo-style';
+    style.textContent = `
+      .sbwo-dropzone { border: 2px dashed #4a9fe0; border-radius: 8px; padding: 8px 10px; margin: 10px 0;
+        background: rgba(74,159,224,.06); }
+      .sbwo-dropzone.sbwo-over { background: rgba(74,159,224,.2); border-color: #2ecc71; }
+      .sbwo-dz-label { font: 600 12px/1.3 system-ui, sans-serif; color: #4a9fe0; margin-bottom: 4px; }
+      .sbwo-dz-items .sbwo-dz-item { font: 12px/1.4 system-ui, sans-serif; color: #333; display: flex;
+        gap: 6px; align-items: center; }
+      .sbwo-dz-item button { background: none; border: 0; color: #ff6b6b; cursor: pointer; }
+      .sbwo-dz-btns { display: flex; gap: 6px; margin-top: 6px; }
+      .sbwo-gen { background: #4a9fe0; color: #fff; border: 0; border-radius: 4px; padding: 4px 10px;
+        cursor: pointer; font: 600 12px system-ui, sans-serif; }
+      .sbwo-clear-dz { background: none; border: 1px solid #ccc; border-radius: 4px; cursor: pointer;
+        font: 12px system-ui, sans-serif; }
+      .sbwo-dz-hint { font: italic 11px system-ui, sans-serif; color: #888; }
+    `;
+    document.head.appendChild(style);
+
+    const lang = dropLang();
+    const zoneDefs = [{ fieldId: 'id_rich_text', label: '\u2b50 H\u00f6jdpunkter (rich text)' }];
+    const blocks = findExtendedRichTextBlocks();
+    for (const b of blocks) {
+      if (b.type === 'fact_box') {
+        const sec = classifyFactBoxSection($('extended_rich_text-' + b.index + '-value-html')?.value || '');
+        const label = (WHATSON2_EMOJI[sec] || '') + ' ' + (WHATSON2_LABELS_SV[sec] || WHATSON2_LABELS_EN[sec] || 'Ok\u00e4nd kategori');
+        zoneDefs.push({ fieldId: 'extended_rich_text-' + b.index + '-value-html', label: label + ' (ruta #' + (b.index + 1) + ')' });
+      } else if (b.type === 'card_image_link') {
+        zoneDefs.push({ fieldId: 'card:' + b.index, label: '\u25a8 Card #' + (b.index + 1) + ' \u2014 sl\u00e4pp GUIDEl\u00e4nk h\u00e4r', card: true, blockIndex: b.index });
+      }
+    }
+
+    for (const def of zoneDefs) {
+      const anchorEl = def.card
+        ? document.getElementById('extended_rich_text-' + def.blockIndex + '-value-title')
+        : document.getElementById(def.fieldId);
+      if (!anchorEl) continue;
+      const host = anchorEl.closest('.w-panel__content, .w-field, form, .w-panel') || anchorEl.parentElement;
+      if (!host || host.querySelector('#sbwo-drop-' + CSS.escape(def.fieldId))) continue;
+      const zone = buildWhatsonDropZone(def.fieldId, def.label);
+      if (def.card) zone.querySelector('.sbwo-gen').textContent = 'Fyll kortet';
+      host.insertBefore(zone, host.firstChild);
+
+      zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('sbwo-over'); });
+      zone.addEventListener('dragleave', () => zone.classList.remove('sbwo-over'));
+      zone.addEventListener('drop', e => {
+        e.preventDefault();
+        zone.classList.remove('sbwo-over');
+        const url = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain');
+        if (!url) return;
+        if (def.card) {
+          WHATSON_DROP_STORE[def.fieldId] = [{ url: url.trim(), title: '' }];
+          fetchEventTitle(url).then(t => { WHATSON_DROP_STORE[def.fieldId][0].title = t || ''; renderWhatsonDropZones(); });
+        } else {
+          whatsonDropAdd(def.fieldId, url.trim());
+        }
+        renderWhatsonDropZones();
+      });
+      zone.querySelector('.sbwo-gen').addEventListener('click', async () => {
+        await whatsonGenerate(def, lang);
+      });
+      zone.querySelector('.sbwo-clear-dz').addEventListener('click', () => {
+        delete WHATSON_DROP_STORE[def.fieldId];
+        renderWhatsonDropZones();
+      });
+    }
+  }
+
+  async function whatsonGenerate(def, lang) {
+    const items = WHATSON_DROP_STORE[def.fieldId] || [];
+    if (!items.length) { vlog("WHAT'S ON: inga sl\u00e4ppta URL:er i zonen \u00e4n.", 'warn'); return; }
+    setWhatsOnStatus('H\u00e4mtar ' + items.length + ' sidor...', 'work');
+    const infos = [];
+    for (const it of items) {
+      infos.push(await whatsonFetchPageInfo(normalizeEventUrl(it.url, lang)));
+    }
+    if (def.card) {
+      await whatsonFillCard(def.blockIndex, infos[0], lang);
+      setWhatsOnStatus('\u2705 Kortet fyllt!', 'ok');
+      return;
+    }
+    const events = infos.map(i => ({
+      href: i.url, title: i.title || i.url, start_date: i.startDate, end_date: i.endDate,
+      description: i.description, id: i.url, _polished: false
+    }));
+    setWhatsOnStatus('Agenten skriver beskrivningar...', 'work');
+    await polishWhatsOnDescriptions({ zone: events }, lang);
+
+    let monthStart, monthEnd;
+    if (events[0] && events[0].start_date) {
+      const d = parseISODate(events[0].start_date) || new Date();
+      monthStart = new Date(d.getFullYear(), d.getMonth(), 1);
+      monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+    } else {
+      const now = new Date();
+      monthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+      monthEnd = new Date(now.getFullYear(), now.getMonth() + 2, 1);
+    }
+
+    if (def.fieldId === 'id_rich_text') {
+      const title = lang === 'sv' ? 'M\u00e5nadens h\u00f6jdpunkter' : 'Highlights this month';
+      const hBlocks = [{ key: draftKey(), text: title, type: 'header-two', depth: 0, inlineStyleRanges: [], entityRanges: [], data: {} }];
+      const hEntityMap = {};
+      events.forEach(ev => {
+        const b = whatsonEventBlock(ev, lang);
+        const lk = 'wo' + hBlocks.length;
+        b.entityRanges = [{ offset: 0, length: ev.title.length, key: lk }];
+        hEntityMap[lk] = { type: 'LINK', mutability: 'MUTABLE', data: { href: ev.href } };
+        hBlocks.push(b);
+      });
+      const ok = await guardDraftailWrite('id_rich_text', { blocks: hBlocks, entityMap: hEntityMap });
+      vlog("WHAT'S ON: H\u00f6jdpunkter " + (ok ? 'genererade (' + events.length + ' event).' : 'kunde inte skrivas.'), ok ? 'ok' : 'err');
+    } else {
+      const sec = classifyFactBoxSection($(def.fieldId)?.value || '');
+      if (!sec) { vlog("WHAT'S ON: kunde inte avg\u00f6ra kategori f\u00f6r zonen \u2014 blocket beh\u00f6ver sin h2-rubrik.", 'err'); return; }
+      if (lang === 'sv') {
+        const content = buildWhatsOn2SectionContent(sec, events, lang, monthStart, monthEnd);
+        const ok = content ? await guardDraftailWrite(def.fieldId, content) : false;
+        vlog("WHAT'S ON: " + sec + ' ' + (ok ? 'genererad (' + events.length + ' event).' : 'kunde inte skrivas.'), ok ? 'ok' : 'err');
+      } else {
+        const cur = readDraftailJSON(def.fieldId);
+        if (!cur) { vlog("WHAT'S ON: kunde inte l\u00e4sa befintligt inneh\u00e5ll i zonen.", 'err'); return; }
+        const existingText = (cur.blocks || []).map(b => b.text || '').join('\n');
+        const fresh = events.filter(ev => !existingText.includes(ev.title));
+        if (!fresh.length) { vlog("WHAT'S ON: alla event finns redan i zonen.", 'ok'); return; }
+        const entityMap = Object.assign({}, cur.entityMap || {});
+        const newBlocks = fresh.map(ev => {
+          const b = whatsonEventBlock(ev, lang);
+          const lk = 'wo' + Math.random().toString(36).slice(2, 10);
+          b.entityRanges = [{ offset: 0, length: ev.title.length, key: lk }];
+          entityMap[lk] = { type: 'LINK', mutability: 'MUTABLE', data: { href: ev.href } };
+          return b;
+        });
+        let insertAt = cur.blocks.length;
+        for (let i = cur.blocks.length - 1; i >= 0; i--) {
+          const b = cur.blocks[i];
+          if ((b.entityRanges || []).length && b.type === 'unstyled') { insertAt = i; break; }
+        }
+        const ok = await guardDraftailWrite(def.fieldId, { blocks: [...cur.blocks.slice(0, insertAt), ...newBlocks, ...cur.blocks.slice(insertAt)], entityMap });
+        vlog("WHAT'S ON: " + sec + ' p\u00e5staplad (' + fresh.length + ' nya event).', ok ? 'ok' : 'err');
+      }
+    }
+    setWhatsOnStatus('\u2705 Genererat \u2014 spara utkast och ladda om!', 'ok');
+  }
+
+  // Fyller ett card_image_link-kort fr\u00e5n guidesidans SEO-f\u00e4lt
+  async function whatsonFillCard(blockIndex, info, lang) {
+    const norm = normalizeEventUrl(info.url, lang);
+    const full = await whatsonFetchPageInfo(norm);
+    const isSv = lang === 'sv';
+    const seoTitle = full.title || '';
+    const seoDesc = full.description || '';
+    const linkText = isSv ? ('Till Guiden: ' + seoTitle) : ('To the guide: ' + seoTitle);
+    const p = n => 'extended_rich_text-' + blockIndex + '-value-' + n;
+    simulateInput($(p('title')), seoTitle);
+    simulateInput($(p('text')), seoDesc);
+    simulateInput($(p('link-url')), norm);
+    simulateInput($(p('link-text')), linkText);
+    vlog("WHAT'S ON: kort #" + (blockIndex + 1) + ' fyllt fr\u00e5n "' + seoTitle + '".', 'ok');
+  }
 
   function setWhatsOnStatus(msg, kind) {
     const s = document.getElementById('sb-whatson-status');
@@ -4188,22 +4426,13 @@ function buildPanel() {
           <div class="sb-status" id="sb-status"></div>
         </div>
         <div class="sb-tab-panel" data-tab-panel="whatson">
-          <div class="sb-row"><label>Period (startmånad)</label><select id="sb-whatson-month" class="sb-key"></select></div>
-          <div class="sb-whatson-lang">
-            <label class="sb-check"><input type="checkbox" id="sb-whatson-lang-sv" checked><span>🇸🇪 Svenska</span></label>
-            <label class="sb-check"><input type="checkbox" id="sb-whatson-lang-en"><span>🇺🇸 English</span></label>
-          </div>
-          <div class="sb-row"><label>Fyll i what's on-info</label></div>
+          <div class="sb-row"><label>What's On — släpp &amp; generera</label></div>
+          <div style="font:11px/1.4 system-ui;color:#787e8a;margin:4px 0;">Dra event-URL:er från kalendern och släpp dem på rutornas blå drop-zoner på sidan, tryck sedan Generera per ruta — eller allt på en gång:</div>
           <div class="sb-langrow">
-            <button type="button" id="sb-whatson-sv" title="Ersätter månadens innehåll i kategorisektionerna (SV-sida), uppdaterar titelns månad — sparar INTE automatiskt">🇸🇪 Svenska</button>
-            <button type="button" id="sb-whatson-en" title="Lägger till event i befintliga kategorilistor (EN-sida) — sparar INTE automatiskt">🇺🇸 Engelska</button>
+            <button type="button" id="sb-whatson-generate-all">Generera alla rutor</button>
+            <button type="button" id="sb-whatson-reinstall-zones" title="Letar upp block på nytt (efter att du lagt till/strukit block)">Leta upp rutor</button>
           </div>
           <div class="sb-status" id="sb-whatson-status"></div>
-          <div id="sb-whatson-memory"></div>
-          <div id="sb-whatson-guides"></div>
-          <div class="sb-langrow">
-            <button type="button" id="sb-whatson-refresh-guides" title="Uppdatera guidegardin och kortlistan">↻ Uppdatera guider</button>
-          </div>
         </div>
         <div class="sb-tab-panel" data-tab-panel="settings">
           <label class="sb-toggle-row">
@@ -4311,31 +4540,31 @@ function buildPanel() {
       importSettingsFile(file);
     });
 
-    populateWhatsOnMonthDropdown($('sb-whatson-month'));
-    // Språkval i WHAT'S ON-fliken: ömsesidigt uteslutande (radiobeteende på
-    // kryssrutor, som Aron ville) — Svenska förvald. Valet styr agentens
-    // språk, guidernas titelspråk och månadsnamnen, och sparas per nyckel.
-    const langSv = $('sb-whatson-lang-sv'), langEn = $('sb-whatson-lang-en');
-    langSv.checked = getWhatsOnLang() === 'sv';
-    langEn.checked = getWhatsOnLang() === 'en';
-    langSv.addEventListener('change', () => {
-      if (langSv.checked) langEn.checked = false; else langSv.checked = true;
-      setWhatsOnLang('sv');
-      populateWhatsOnMonthDropdown($('sb-whatson-month'));
-      vlog("WHAT'S ON: språk satt till Svenska.");
+    $('sb-whatson-generate-all').addEventListener('click', async () => {
+      const lang = dropLang();
+      const zones = [...document.querySelectorAll('.sbwo-dropzone')];
+      let n = 0;
+      for (const zoneEl of zones) {
+        const fieldId = zoneEl.id.replace(/^sbwo-drop-/, '');
+        const def = { fieldId, card: fieldId.startsWith('card:'), blockIndex: fieldId.startsWith('card:') ? parseInt(fieldId.slice(5), 10) : null };
+        if ((WHATSON_DROP_STORE[fieldId] || []).length) { await whatsonGenerate(def, lang); n++; }
+      }
+      vlog("WHAT'S ON: " + n + ' ruta(or) genererade.', 'ok');
+      if (lang === 'sv') {
+        const first = Object.values(WHATSON_DROP_STORE)[0];
+        if (first && first[0]) {
+          const info = await whatsonFetchPageInfo(first[0].url);
+          if (info.startDate) updateTitleMonth(parseISODate(info.startDate) || new Date(), lang);
+        }
+      }
     });
-    langEn.addEventListener('change', () => {
-      if (langEn.checked) langSv.checked = false; else langEn.checked = true;
-      setWhatsOnLang('en');
-      populateWhatsOnMonthDropdown($('sb-whatson-month'));
-      vlog("WHAT'S ON: språk satt till English.");
+    $('sb-whatson-reinstall-zones').addEventListener('click', () => {
+      document.querySelectorAll('.sbwo-dropzone').forEach(z => z.remove());
+      const st = document.getElementById('sbwo-style'); if (st) st.remove();
+      installWhatsonDropZones();
+      vlog("WHAT'S ON: drop-zoner uppdaterade.", 'ok');
     });
-    $('sb-whatson-sv').addEventListener('click', () => fillWhatsOn2('sv'));
-    $('sb-whatson-en').addEventListener('click', () => fillWhatsOn2('en'));
-    $('sb-whatson-refresh-guides').addEventListener('click', () => {
-      renderWhatsOn2MemoryPanel();
-      renderWhatsOn2GuidePanel($('sb-whatson-guides'));
-    });
+    installWhatsonDropZones();
     // Guidegardinen renderas direkt (blocken finns redan på edit-sidan).
     // Try/catch: ett fel här ska aldrig ta död på resten av panelen
     // (tabbarnas lyssnare registreras senare i buildPanel).
