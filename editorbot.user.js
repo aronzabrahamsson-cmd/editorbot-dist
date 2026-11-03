@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      4.48
-// @description  v4.48: Paste i fact_box landade aldrig — Chrome ignorerar clipboardData i ClipboardEvent-KONSTRUKTORN så Draftail läste undefined; clipboardData definieras nu via defineProperty (såsom objectside-flödet alltid gjort) och hela rutans innehåll markeras före paste så SV-ersättning fungerar. Agent-timeout höjd 90→240 s (web-sökande agent behöver längre tid) med svarstidsloggning. v4.47: Genererat innehåll försvann ändå vid sparning — skriv-vaktens dolda-fält-skrivning nådde aldrig Draftails React-state som skrev över det vid spara. WHAT'S ON-skrivningen använder nu RIKTIG paste (text/html) i editorn så Draftails egna paste-hantering bygger blocken OCH uppdaterar React-state (samma verifierade mekanik som objectside-flödets execCommand-reserv); SV ersätter rutan (h2 + li-rader i sidans format), EN klistrar in i slutet; verifiering mot dolt fält efter paste. v4.46: Agent-anropen hängde tyst (titlar blev URL:er, inga beskrivningar mottogs) — sidhämtning kör nu sid-fetch först med 10 s timeout (GM som reserv, hård 12 s-timeout) och agent-anropet har 90 s hårdtimeout varefter flödet fortsätter med råbeskrivningar; drop-zonerna får ljus bakgrund, fetstil och titlar i stället för URL:er; Generera-knappen inaktiveras (halvtransparent) medan den kör och visar senaste loggraden bredvid. v4.45: WHAT'S ON v3 — drag-and-drop direkt i CMS: hela insamlingsflödet (widget på webben, alt+klick, GM-minne, Fyll i-knappar) är BORTTAGET; istället får varje blockruta (Höjdpunkter/rich_text, varje fact_box, varje card_image_link-kort) en blå drop-zon där event-URL:er släpps från kalendern, en Generera-knapp per ruta + en global, språket styrs av domänen (.se ersätter månaden helt, .com staplar på), kort fylls från guidesidans SEO-fält (title/text/link-text/link-url) utan agent, fact-box-event hämtar titel/datum/beskrivning via sid-fetch och agenten skriver husstils-beskrivningar; @match tillbaka till endast CMS-sidor. v4.44: 'gmContextDead is not defined' vid varje Mistral-anrop — deklarationen föll bort i ett sektionsbyte så agenten kraschade och titel-hämtningen med den (URL:er visades i stället för sidrubriker). Deklarationen återinförd, titel-hämtningen har sid-fetch-reserv och får aldrig visa URL som titel; kategori-emojis i både widgeten och CMS-panelen; kryssrutan på kategorierna ersatt av ren aktiv-markering. v4.43: Övrigt-rubriken är nu HÖJDPUNKTER och ligger FÖRST — den motsvarar sidans rich_text-fält och fylls med h2-rubriken "Månadens höjdpunkter" + eventlista när Fyll i körs; CMS-panelens minneslista speglar nu sidans faktiska blockordning (Höjdpunkter, sedan varje fact_box-ruta med sin kategori, och sidans card_image_link-block visas som kortväljare mellan rubrikerna) så panelen ser ut som sidan. v4.42: Fact_box-innehållet skrevs men något (React re-render/lås-polling) återställde editorns state och raderade det vid sparning — ny skriv-vakt pollar det dolda fältet i 6 s efter skrivning, skriver OM automatiskt upp till 3 gånger om något skriver över det, och loggar diagnostik (visar den synliga editorn det nya innehållet?) så exakt läge syns i loggen. v4.41: "Fyll i what's on" skrev innehållet i fact_box-blocken men det försvann vid sparning — HTML-paste tog sig aldrig in i Draftails React-state som skrev över det dolda fältet. Sektionerna byggs nu som draft.js-JSON (h2-rubrik, ul-block med länk/fetstil/kursiv-format, avslutande bläddringslänk, entityMap med LINK-entiteter) och skrivs via writeDraftailJSON — samma väg som den strukturbevarande översättningen, som är verifierad att överleva sparning. EN-grenen infogar nya block före avslutnings-p:et med dubblettskydd. v4.40: What's On-minnet försvann vid siduppdatering och syntes inte i CMS-fliken — minnet skrivs nu DUBBELT (GM + localStorage) och läses SAMMANSLAGET (union per event-URL) med synk vid varje sidladdning, så en död/domän-scoped GM-brygga aldrig kan förlora samlingen; CMS-fliken visar nu en live-lista över sparade event per kategori (med ta-bort-knappar) så du ser exakt vad Fyll i-knapparna kommer arbeta med. v4.39: ROTORSAKEN till döda tabbar/knappar: v4.35-omskrivningen tog bort definitionerna av populateWhatsOnMonthDropdown, setWhatsOnLang, getWhatsOnLang, getWhatsOnPeriodRange, buildWhatsOnMonthOptions och pasteHtmlIntoDraftail medan anropen fanns kvar — första ReferenceError i buildPanel avbröt alla lyssnar-registreringar. Samtliga återinförda från v4.34; panelen klickbar igen. v4.38: När GM-bryggan är död (SBR-bot service worker nere) kastade GM_getValue/GM_setValue och ETT kast i init-sekvensen dödade hela panelen — tabbar/logg/inställningar blev oklickbara. Alla GM-anrop går nu via säkra wrappers (sbGMGet/sbGMSet) med localStorage-fallback som aldrig kastar, och hela init-sekvensen (tema, panel, EventPortal-listen, widget) är try/catch-ad per bygge så UI:t alltid byggs även om GM-lagringen är otillgänglig. v4.37: Alt+klick laddade ner länkmålet och la inte till eventet på sidor utanför event-/events-sökvägarna — @match breddas till hela visitstockholm.se/com och widgeten byggs på ALLA publika (icke-CMS) sidor; alt+klick preventDefault:as FÖR kategorikollen så webbläsarens nedladdning stoppas alltid; kategorirubrikerna är fetställda med kryssruta som visar aktuell kategori + antal sparade event per kategori. v4.36: Widgeten gick inte att minimera och rensa-knappen saknade lyssnare (fanns i HTML:en men gjorde inget); kategorirubrikerna är nu riktiga knappar; guidegardin-renderingen är try/catch-ad så ett fel där inte längre kan döda panelens tabblyssnare (orsaken till att tabben inte gick att klicka på). v4.35: WHAT'S ON-OMTAG: nytt alt+klick-flöde — välj kategori i widgeten på event-/listsidor (nu även @match:ade) och alt+klicka eventlänkar för att samla dem i GM-minne (namn visas, ta bort/drag-drop mellan kategorier, rensa-knapp); i CMS:et fyller [Svenska]/[Engelska] sidans kategorisektioner med samma HTML-struktur som befintligt innehåll — SV ersätter månaden helt och uppdaterar titelns månad, EN staplar på under föregående månader; guidegardin med sök över månadsguideförslagen, ett guideval per card-kort. v4.34: Översättningen bevarar nu källformateringen i Draftail-fält — rubriker, fetstil, länkar och inlagda bilder — genom segmentvis översättning direkt i draft.js-JSON med omräknade offsets; Mistral instrueras alltid använda n-dash med mellanslag ( – ) i stället för em-dash utan mellanslag (—) och svar med em-dash skickas tillbaka upp till 3 gånger innan mekanisk sanering. v4.33: GM-kontext-flaggan (sid-fetch för resten av sessionen) triggas nu även av "Could not establish connection" och "SBR-bot-bryggan kunde inte nå service workern" — tidigare bara "Extension context invalidated" — så en död GM-brygga inte loggas om och försöks om vid varje anrop. v4.32: Översättningsfunktionen missade preamble (textarea), fact_box-modulernas rubriktext (extended_rich_text-N-value-html, Draftail) och card_image_link-modulernas title/text/link-text — TRANSLATABLE_FIELDS var en statisk lista som bara täckte fasta sidfält. Fältlistan byggs nu dynamiskt per körning och plockar med alla streamfield-block i extended rich text, men ALDRIG URL- (link-url/link-page), bild- eller bakgrundsfält. v4.31: Draftail-fält på vissa sid-sidor gick inte att fylla i — loggen visade "root-nycklar: 0", dvs. React sätter aldrig __reactFiber$/__reactProps$ på .DraftEditor-root där, så props-vandringen kan aldrig lyckas. När React-props saknas körs nu en paste-reserv (portrerad från EventBot v7.97.9): riktig paste-händelse → execCommand → dolt input-fält, en metod i taget med verifiering mot det dolda draft.js-fältet mellan varje steg. v4.30: inställningar överlever uppdatering, What's On fler event, GM-kontext-reserv, Draftail React 17+-props. v4.23: Fixat "Skriv till sidan" som inte gjorde något — orsaken var att kategori→sektion-mappningen (WHAT'S ON) bara kände till engelska slugs, medan API:et på .se-domänen faktiskt returnerar lokaliserade SVENSKA kategorietiketter ("musik", "scen & film", "utställningar"), bekräftat via en riktig körning där ALLA 228 event hamnade i "Övrigt" istället för Konserter/Scen & film/Museer. Lade till de svenska etiketterna i CATEGORY_TO_SECTION. Fixade även en "[object Object]"-bugg när ett kategorifält är ett objekt ({id,name}) istället för en sträng. v4.22: Steg 4 (första försöket) — "Skriv till sidan"-knappen skriver ikryssade event/guide till sidans befintliga fact_box/card_image_link-block via simulerad inklistring i Draftail, plus bildinfogning från befintlig bildbank. v4.21: Steg 3 — guide-förslag. v4.20: Steg 2 — hämtning/filtrering/kategorisering + checklista. v4.19: Steg 1 — flik, månadsväljare, inställningsfält. Äldre versioner: se git-historiken.
+// @version      4.49
+// @description  v4.49: ROTORSAKEN till tysta häng: definitionerna av gmGet OCH gmDead föll båda bort i v4.45-sektionsbytena medan anropen fanns kvar — titel-hämtningen kastade sväljd ReferenceError ("kunde inte hämta... varken sid-fetch eller GM") och gmPosts felhanterare kastade ReferenceError INOM felhanteraren så agent-anropets promise aldrig settle:ades (svaret mottogs aldrig trots fungerande agent). Återinförda; gmGet har 20 s-väktare och gmPost 35 s-väktare som vid tyst häng i SBR-bot-bryggan (sendMessage utan svar) automatiskt kör sid-fetch-reserven. v4.48: Paste i fact_box landade aldrig — Chrome ignorerar clipboardData i ClipboardEvent-KONSTRUKTORN så Draftail läste undefined; clipboardData definieras nu via defineProperty (såsom objectside-flödet alltid gjort) och hela rutans innehåll markeras före paste så SV-ersättning fungerar. Agent-timeout höjd 90→240 s (web-sökande agent behöver längre tid) med svarstidsloggning. v4.47: Genererat innehåll försvann ändå vid sparning — skriv-vaktens dolda-fält-skrivning nådde aldrig Draftails React-state som skrev över det vid spara. WHAT'S ON-skrivningen använder nu RIKTIG paste (text/html) i editorn så Draftails egna paste-hantering bygger blocken OCH uppdaterar React-state (samma verifierade mekanik som objectside-flödets execCommand-reserv); SV ersätter rutan (h2 + li-rader i sidans format), EN klistrar in i slutet; verifiering mot dolt fält efter paste. v4.46: Agent-anropen hängde tyst (titlar blev URL:er, inga beskrivningar mottogs) — sidhämtning kör nu sid-fetch först med 10 s timeout (GM som reserv, hård 12 s-timeout) och agent-anropet har 90 s hårdtimeout varefter flödet fortsätter med råbeskrivningar; drop-zonerna får ljus bakgrund, fetstil och titlar i stället för URL:er; Generera-knappen inaktiveras (halvtransparent) medan den kör och visar senaste loggraden bredvid. v4.45: WHAT'S ON v3 — drag-and-drop direkt i CMS: hela insamlingsflödet (widget på webben, alt+klick, GM-minne, Fyll i-knappar) är BORTTAGET; istället får varje blockruta (Höjdpunkter/rich_text, varje fact_box, varje card_image_link-kort) en blå drop-zon där event-URL:er släpps från kalendern, en Generera-knapp per ruta + en global, språket styrs av domänen (.se ersätter månaden helt, .com staplar på), kort fylls från guidesidans SEO-fält (title/text/link-text/link-url) utan agent, fact-box-event hämtar titel/datum/beskrivning via sid-fetch och agenten skriver husstils-beskrivningar; @match tillbaka till endast CMS-sidor. v4.44: 'gmContextDead is not defined' vid varje Mistral-anrop — deklarationen föll bort i ett sektionsbyte så agenten kraschade och titel-hämtningen med den (URL:er visades i stället för sidrubriker). Deklarationen återinförd, titel-hämtningen har sid-fetch-reserv och får aldrig visa URL som titel; kategori-emojis i både widgeten och CMS-panelen; kryssrutan på kategorierna ersatt av ren aktiv-markering. v4.43: Övrigt-rubriken är nu HÖJDPUNKTER och ligger FÖRST — den motsvarar sidans rich_text-fält och fylls med h2-rubriken "Månadens höjdpunkter" + eventlista när Fyll i körs; CMS-panelens minneslista speglar nu sidans faktiska blockordning (Höjdpunkter, sedan varje fact_box-ruta med sin kategori, och sidans card_image_link-block visas som kortväljare mellan rubrikerna) så panelen ser ut som sidan. v4.42: Fact_box-innehållet skrevs men något (React re-render/lås-polling) återställde editorns state och raderade det vid sparning — ny skriv-vakt pollar det dolda fältet i 6 s efter skrivning, skriver OM automatiskt upp till 3 gånger om något skriver över det, och loggar diagnostik (visar den synliga editorn det nya innehållet?) så exakt läge syns i loggen. v4.41: "Fyll i what's on" skrev innehållet i fact_box-blocken men det försvann vid sparning — HTML-paste tog sig aldrig in i Draftails React-state som skrev över det dolda fältet. Sektionerna byggs nu som draft.js-JSON (h2-rubrik, ul-block med länk/fetstil/kursiv-format, avslutande bläddringslänk, entityMap med LINK-entiteter) och skrivs via writeDraftailJSON — samma väg som den strukturbevarande översättningen, som är verifierad att överleva sparning. EN-grenen infogar nya block före avslutnings-p:et med dubblettskydd. v4.40: What's On-minnet försvann vid siduppdatering och syntes inte i CMS-fliken — minnet skrivs nu DUBBELT (GM + localStorage) och läses SAMMANSLAGET (union per event-URL) med synk vid varje sidladdning, så en död/domän-scoped GM-brygga aldrig kan förlora samlingen; CMS-fliken visar nu en live-lista över sparade event per kategori (med ta-bort-knappar) så du ser exakt vad Fyll i-knapparna kommer arbeta med. v4.39: ROTORSAKEN till döda tabbar/knappar: v4.35-omskrivningen tog bort definitionerna av populateWhatsOnMonthDropdown, setWhatsOnLang, getWhatsOnLang, getWhatsOnPeriodRange, buildWhatsOnMonthOptions och pasteHtmlIntoDraftail medan anropen fanns kvar — första ReferenceError i buildPanel avbröt alla lyssnar-registreringar. Samtliga återinförda från v4.34; panelen klickbar igen. v4.38: När GM-bryggan är död (SBR-bot service worker nere) kastade GM_getValue/GM_setValue och ETT kast i init-sekvensen dödade hela panelen — tabbar/logg/inställningar blev oklickbara. Alla GM-anrop går nu via säkra wrappers (sbGMGet/sbGMSet) med localStorage-fallback som aldrig kastar, och hela init-sekvensen (tema, panel, EventPortal-listen, widget) är try/catch-ad per bygge så UI:t alltid byggs även om GM-lagringen är otillgänglig. v4.37: Alt+klick laddade ner länkmålet och la inte till eventet på sidor utanför event-/events-sökvägarna — @match breddas till hela visitstockholm.se/com och widgeten byggs på ALLA publika (icke-CMS) sidor; alt+klick preventDefault:as FÖR kategorikollen så webbläsarens nedladdning stoppas alltid; kategorirubrikerna är fetställda med kryssruta som visar aktuell kategori + antal sparade event per kategori. v4.36: Widgeten gick inte att minimera och rensa-knappen saknade lyssnare (fanns i HTML:en men gjorde inget); kategorirubrikerna är nu riktiga knappar; guidegardin-renderingen är try/catch-ad så ett fel där inte längre kan döda panelens tabblyssnare (orsaken till att tabben inte gick att klicka på). v4.35: WHAT'S ON-OMTAG: nytt alt+klick-flöde — välj kategori i widgeten på event-/listsidor (nu även @match:ade) och alt+klicka eventlänkar för att samla dem i GM-minne (namn visas, ta bort/drag-drop mellan kategorier, rensa-knapp); i CMS:et fyller [Svenska]/[Engelska] sidans kategorisektioner med samma HTML-struktur som befintligt innehåll — SV ersätter månaden helt och uppdaterar titelns månad, EN staplar på under föregående månader; guidegardin med sök över månadsguideförslagen, ett guideval per card-kort. v4.34: Översättningen bevarar nu källformateringen i Draftail-fält — rubriker, fetstil, länkar och inlagda bilder — genom segmentvis översättning direkt i draft.js-JSON med omräknade offsets; Mistral instrueras alltid använda n-dash med mellanslag ( – ) i stället för em-dash utan mellanslag (—) och svar med em-dash skickas tillbaka upp till 3 gånger innan mekanisk sanering. v4.33: GM-kontext-flaggan (sid-fetch för resten av sessionen) triggas nu även av "Could not establish connection" och "SBR-bot-bryggan kunde inte nå service workern" — tidigare bara "Extension context invalidated" — så en död GM-brygga inte loggas om och försöks om vid varje anrop. v4.32: Översättningsfunktionen missade preamble (textarea), fact_box-modulernas rubriktext (extended_rich_text-N-value-html, Draftail) och card_image_link-modulernas title/text/link-text — TRANSLATABLE_FIELDS var en statisk lista som bara täckte fasta sidfält. Fältlistan byggs nu dynamiskt per körning och plockar med alla streamfield-block i extended rich text, men ALDRIG URL- (link-url/link-page), bild- eller bakgrundsfält. v4.31: Draftail-fält på vissa sid-sidor gick inte att fylla i — loggen visade "root-nycklar: 0", dvs. React sätter aldrig __reactFiber$/__reactProps$ på .DraftEditor-root där, så props-vandringen kan aldrig lyckas. När React-props saknas körs nu en paste-reserv (portrerad från EventBot v7.97.9): riktig paste-händelse → execCommand → dolt input-fält, en metod i taget med verifiering mot det dolda draft.js-fältet mellan varje steg. v4.30: inställningar överlever uppdatering, What's On fler event, GM-kontext-reserv, Draftail React 17+-props. v4.23: Fixat "Skriv till sidan" som inte gjorde något — orsaken var att kategori→sektion-mappningen (WHAT'S ON) bara kände till engelska slugs, medan API:et på .se-domänen faktiskt returnerar lokaliserade SVENSKA kategorietiketter ("musik", "scen & film", "utställningar"), bekräftat via en riktig körning där ALLA 228 event hamnade i "Övrigt" istället för Konserter/Scen & film/Museer. Lade till de svenska etiketterna i CATEGORY_TO_SECTION. Fixade även en "[object Object]"-bugg när ett kategorifält är ett objekt ({id,name}) istället för en sträng. v4.22: Steg 4 (första försöket) — "Skriv till sidan"-knappen skriver ikryssade event/guide till sidans befintliga fact_box/card_image_link-block via simulerad inklistring i Draftail, plus bildinfogning från befintlig bildbank. v4.21: Steg 3 — guide-förslag. v4.20: Steg 2 — hämtning/filtrering/kategorisering + checklista. v4.19: Steg 1 — flik, månadsväljare, inställningsfält. Äldre versioner: se git-historiken.
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.com/cms/pages/*/edit/*
@@ -136,7 +136,64 @@
   // v4.44: deklarationen föll bort i ett sektionsbyte — ReferenceError vid varje
   // Mistral-anrop (agenten föll tillbaka) och titel-hämtning via gmGet.
   let gmContextDead = false;
+  // v4.49: denna hjälpfunktion föll bort i v4.45-sektionsbytena — gmPosts
+  // felhanterare anropade den och ReferenceError INOM felhanteraren gör att
+  // promiseen aldrig settle:as = tyst häng. Återinförd.
+  function gmDead(msg) {
+    const s = String(msg || '');
+    return /Extension context invalidated|Could not establish connection|kunde inte nå service workern/i.test(s);
+  }
+  // v4.49: gmGet-definitionen saknades HELT sedan v4.45 medan anropen fanns
+  // kvar (titel-hämtning) — ReferenceError svaldes tyst av try/catch, vilket
+  // förklarade "varken sid-fetch eller GM"-felen. Återinförd med 20 s
+  // väktare: en tyst hängande GM-brygga (sendMessage utan svar) gör att vi
+  // faller tillbaka på sid-fetch i stället för att vänta för evigt.
+  function gmGet(url) {
+    if (gmContextDead) return pageFetchText(url);
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const watchdog = setTimeout(() => {
+        if (settled) return; settled = true;
+        vlog('GM-hämtning svarar inte på 20 s (tyst häng i bryggan) — provar sid-fetch: ' + url, 'warn');
+        pageFetchText(url).then(resolve, fe => reject(new Error('Tyst GM-häng / sid-fetch: ' + (fe && fe.message ? fe.message : fe))));
+      }, 20000);
+      const ok = v => { if (!settled) { settled = true; clearTimeout(watchdog); resolve(v); } };
+      const fail = e => { if (!settled) { settled = true; clearTimeout(watchdog); reject(e); } };
+      try {
+        GM_xmlhttpRequest({
+          method: 'GET', url, timeout: 30000,
+          onload: r => { if (r.status < 200 || r.status >= 300) return fail(new Error('HTTP ' + r.status)); ok(r.responseText); },
+          onerror: e => {
+            const why = (e && e.error) ? ': ' + e.error : '';
+            if (gmDead(e && e.error)) {
+              gmContextDead = true;
+              vlog('GM-kontexten är död (script uppdaterat/reloadat) — använder sid-fetch för resten av sessionen.', 'warn');
+            } else {
+              vlog('GM-hämtning misslyckades' + why + ' — provar sid-fetch som reserv: ' + url, 'warn');
+            }
+            pageFetchText(url).then(ok, fe => fail(new Error('GM' + why + ' / sid-fetch: ' + (fe && fe.message ? fe.message : fe))));
+          },
+          ontimeout: () => {
+            vlog('GM-hämtning timeout (30 s) — provar sid-fetch: ' + url, 'warn');
+            pageFetchText(url).then(ok, fe => fail(new Error('GM-timeout / sid-fetch: ' + (fe && fe.message ? fe.message : fe))));
+          }
+        });
+      } catch (err) {
+        const msg = String(err && err.message ? err.message : err);
+        if (gmDead(msg)) {
+          gmContextDead = true;
+          vlog('GM-kontexten är död (script uppdaterat/reloadat) — använder sid-fetch för resten av sessionen.', 'warn');
+        } else {
+          vlog('GM_xmlhttpRequest kastade synkront (' + msg + ') — provar sid-fetch: ' + url, 'warn');
+        }
+        pageFetchText(url).then(ok, fe => fail(new Error('GM-kast / sid-fetch: ' + (fe && fe.message ? fe.message : fe))));
+      }
+    });
+  }
   function gmPost(url, headers, body) {
+    // v4.49: 35 s-väktare — SBR-bot-bryggan kan tyst hänga (sendMessage utan
+    // svar) vilket lämnade agent-anropet väntande i all oändlighet.
+    const GMPOST_WATCHDOG_MS = 35000;
     const pageFetchFallback = (why, resolve, reject) =>
       pageFetchText(url, { method: 'POST', headers: headers, body: JSON.stringify(body), timeout: 120000 })
         .then(t => { try { resolve(JSON.parse(t)); } catch { reject(new Error('Ogiltig JSON (sid-fetch)')); } },
@@ -145,15 +202,23 @@
       return new Promise((resolve, reject) => pageFetchFallback('', resolve, reject));
     }
     return new Promise((resolve, reject) => {
+      let settled = false;
+      const watchdog = setTimeout(() => {
+        if (settled) return; settled = true;
+        vlog('GM-anrop svarar inte på 35 s (tyst häng i bryggan) — provar sid-fetch: ' + url, 'warn');
+        pageFetchFallback(' (tyst GM-häng)', resolve, reject);
+      }, GMPOST_WATCHDOG_MS);
+      const ok = v => { if (!settled) { settled = true; clearTimeout(watchdog); resolve(v); } };
+      const fail = e => { if (!settled) { settled = true; clearTimeout(watchdog); reject(e); } };
       try {
         GM_xmlhttpRequest({
         method: 'POST', url, headers, data: JSON.stringify(body),
         onload: r => {
-          if (r.status === 401) return reject(new Error('Mistral: 401'));
-          if (r.status === 422) return reject(new Error('Mistral: 422'));
-          if (r.status === 429) return reject(new Error('Mistral: 429'));
-          if (r.status < 200 || r.status >= 300) return reject(new Error('HTTP ' + r.status));
-          try { resolve(JSON.parse(r.responseText)); } catch { reject(new Error('Ogiltig JSON')); }
+          if (r.status === 401) return fail(new Error('Mistral: 401'));
+          if (r.status === 422) return fail(new Error('Mistral: 422'));
+          if (r.status === 429) return fail(new Error('Mistral: 429'));
+          if (r.status < 200 || r.status >= 300) return fail(new Error('HTTP ' + r.status));
+          try { ok(JSON.parse(r.responseText)); } catch { fail(new Error('Ogiltig JSON')); }
         },
         onerror: e => {
           const why = (e && e.error) ? ': ' + e.error : '';
@@ -163,9 +228,9 @@
           } else {
             vlog('Mistral-anrop via GM misslyckades' + why + ' — provar sid-fetch som reserv.', 'warn');
           }
-          pageFetchFallback(why, resolve, reject);
+          pageFetchFallback(why, ok, fail);
         },
-        ontimeout: () => reject(new Error('Timeout')), timeout: 120000
+        ontimeout: () => fail(new Error('Timeout')), timeout: 120000
         });
       } catch (err) {
         const msg = String(err && err.message ? err.message : err);
@@ -175,7 +240,7 @@
         } else {
           vlog('GM_xmlhttpRequest kastade synkront (' + msg + ') — provar sid-fetch som reserv.', 'warn');
         }
-        pageFetchFallback('', resolve, reject);
+        pageFetchFallback('', ok, fail);
       }
     });
   }
