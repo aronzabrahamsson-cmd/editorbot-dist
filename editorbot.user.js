@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         EditorBot
 // @namespace    visitstockholm.sidbot
-// @version      4.58
-// @description  v4.58: När Draftail-paste togs inte emot OCH React-props saknas (root-nycklar: 0 på dessa fact_box-editorer) körs nu översättningsflödets verifierade paste/execCommand-insertHTML-kedja som sista reserv; dessutom tystas vilseledande "tog över 30 s"-felrader från kvarvarande racetimrar som avfyras när hämtningen redan hann klart. v4.57: Sista steget (paste i Draftail) verifierades med en fast 600 ms-väntan så en dröjande React-state-synk till det dolda fältet rapporterades felaktigt som "LANDADE EJ" — nu pollas upp till 5 s (EventBots mönster) och landar paste fortfarande inte körs React-props-vägen som reserv (EditorState.createWithContent + props.onChange, deras verifierade sätt som överlever sparning) med ny 5 s-verifiering; diagnostik loggar synlig editortext och props-läge vid misslyckande. v4.56: ROTORSAKEN till alla tysta häng i sid-hämtningen sedan v4.50: settle-wrappern i pageFetchText satte done=true redan när fetch() lämnat response-headern, så när kroppen (r.text()) sedan lästes var settle(resolve) en NO-OP — varje LYCKAD fetch hängde för evigt utan vare sig OK-, fel- eller timeout-loggrad (bara de yttre racen räddade flödet). done markeras nu först när hela svaret är läst eller ett fel skett. v4.55: Att släppa FLERA länkar samtidigt i what's on-rutorna avvisades tyst — Chrome levererar multi-drag som text/uri-list med en URL per rad (# = kommentarer) men hanteraren tolkade hela blobben som EN url så isEventUrl avvisade den. Nu splittras droppen och varje event-URL läggs till (dubblettskydd per URL finns kvar), ogiltiga länkar loggas; kort behåller första URL:en. v4.54: Hämtningen kunde frysa HELT på "hämtar sida 1/N" i över 5 minuter utan att varken lyckas eller misslyckas (pageFetchText-promiset settle:ades aldrig trots 10 s-timer) — nu: hård yttre gräns 30 s per sida så flödet alltid går vidare (tom info + tydlig felrad), och pageFetchText loggar start/tidsgräns/synkront kast så exakt blockerande steg avslöjas. v4.53: Flödet kunde stå still på "Hämtar N sidor..." i minuter utan en enda loggrad (död GM-brygga + ev. CSP-blockad sid-fetch sväljs tyst av fetchPageHtmlRobust) — hela hämtningskedjan loggar nu varje steg: per sida "hämtar sida X/N: url" + "klar på N ms — titel: ...", och fetchPageHtmlRobust loggar såväl sid-fetch-OK (ms + teckenantal) som exakt felorsak vid misslyckande (avslöjar t.ex. CSP "Refused to connect" eller "Failed to fetch") före GM-reserven. v4.52: Transport-härdning enligt EventBots verifierade mönster: proaktivt GM-hälsokoll (billigt GET /v1/models med 8 s watchdog) före första agent-anropet upptäcker en tyst död messaging-port trots "bridge ready"-loggen; efter konstaterat nätverksfel/timeout/tyst häng hoppas GM över HELT i 2 minuter (markGmBridgeDead) så SBR-bots egna retries inte spökar; 502/503/504 rapporteras som tillfälliga serverfel; sid-fetch-reservens misslyckanden loggas TYDLIGT (CSP-misstanke nämns) i stället för att sväljas av den yttre racen; extractJSON tål kodstängsel (```json) och brus runt JSON:en. v4.51: EditorBot ska INTE köras i event-delen av CMS (där blockerar det EventBot) — @exclude på https://www.visitstockholm.se/com/cms/api/event/* (täcker /cms/api/event/edit/* och /cms/api/event/?status__exact=draft; kalender-API:t EditorBot använder är /api/v1/singulareventdates/ så inget funktionsbrott) + runtime-guard som avbryter innan något byggs om en iframe ändå slinker igenom. v4.50: Fler funktioner som föll bort i v4.45-sektionsbytena medan anropen fanns kvar: pageFetchText (alla "sid-fetch som reserv"-grenar kastade ReferenceError INOM sina callbacks så agent-anropet gick tyst i stå EFTER loggraden "provar sid-fetch" — därför nåddes aldrig api.mistral.ai och titel-hämtningen rapporterade "varken sid-fetch eller GM" fast sid-fetch aldrig kördes), eventRowHtmlWhatsOn (SV-grenens paste-HTML-rad, "kunde inte skrivas") och gmGetJson (kalenderhämtningen) — samtliga återinförda. v4.49: ROTORSAKEN till tysta häng: definitionerna av gmGet OCH gmDead föll båda bort i v4.45-sektionsbytena medan anropen fanns kvar — titel-hämtningen kastade sväljd ReferenceError ("kunde inte hämta... varken sid-fetch eller GM") och gmPosts felhanterare kastade ReferenceError INOM felhanteraren så agent-anropets promise aldrig settle:ades (svaret mottogs aldrig trots fungerande agent). Återinförda; gmGet har 20 s-väktare och gmPost 35 s-väktare som vid tyst häng i SBR-bot-bryggan (sendMessage utan svar) automatiskt kör sid-fetch-reserven. v4.48: Paste i fact_box landade aldrig — Chrome ignorerar clipboardData i ClipboardEvent-KONSTRUKTORN så Draftail läste undefined; clipboardData definieras nu via defineProperty (såsom objectside-flödet alltid gjort) och hela rutans innehåll markeras före paste så SV-ersättning fungerar. Agent-timeout höjd 90→240 s (web-sökande agent behöver längre tid) med svarstidsloggning. v4.47: Genererat innehåll försvann ändå vid sparning — skriv-vaktens dolda-fält-skrivning nådde aldrig Draftails React-state som skrev över det vid spara. WHAT'S ON-skrivningen använder nu RIKTIG paste (text/html) i editorn så Draftails egna paste-hantering bygger blocken OCH uppdaterar React-state (samma verifierade mekanik som objectside-flödets execCommand-reserv); SV ersätter rutan (h2 + li-rader i sidans format), EN klistrar in i slutet; verifiering mot dolt fält efter paste. v4.46: Agent-anropen hängde tyst (titlar blev URL:er, inga beskrivningar mottogs) — sidhämtning kör nu sid-fetch först med 10 s timeout (GM som reserv, hård 12 s-timeout) och agent-anropet har 90 s hårdtimeout varefter flödet fortsätter med råbeskrivningar; drop-zonerna får ljus bakgrund, fetstil och titlar i stället för URL:er; Generera-knappen inaktiveras (halvtransparent) medan den kör och visar senaste loggraden bredvid. v4.45: WHAT'S ON v3 — drag-and-drop direkt i CMS: hela insamlingsflödet (widget på webben, alt+klick, GM-minne, Fyll i-knappar) är BORTTAGET; istället får varje blockruta (Höjdpunkter/rich_text, varje fact_box, varje card_image_link-kort) en blå drop-zon där event-URL:er släpps från kalendern, en Generera-knapp per ruta + en global, språket styrs av domänen (.se ersätter månaden helt, .com staplar på), kort fylls från guidesidans SEO-fält (title/text/link-text/link-url) utan agent, fact-box-event hämtar titel/datum/beskrivning via sid-fetch och agenten skriver husstils-beskrivningar; @match tillbaka till endast CMS-sidor. v4.44: 'gmContextDead is not defined' vid varje Mistral-anrop — deklarationen föll bort i ett sektionsbyte så agenten kraschade och titel-hämtningen med den (URL:er visades i stället för sidrubriker). Deklarationen återinförd, titel-hämtningen har sid-fetch-reserv och får aldrig visa URL som titel; kategori-emojis i både widgeten och CMS-panelen; kryssrutan på kategorierna ersatt av ren aktiv-markering. v4.43: Övrigt-rubriken är nu HÖJDPUNKTER och ligger FÖRST — den motsvarar sidans rich_text-fält och fylls med h2-rubriken "Månadens höjdpunkter" + eventlista när Fyll i körs; CMS-panelens minneslista speglar nu sidans faktiska blockordning (Höjdpunkter, sedan varje fact_box-ruta med sin kategori, och sidans card_image_link-block visas som kortväljare mellan rubrikerna) så panelen ser ut som sidan. v4.42: Fact_box-innehållet skrevs men något (React re-render/lås-polling) återställde editorns state och raderade det vid sparning — ny skriv-vakt pollar det dolda fältet i 6 s efter skrivning, skriver OM automatiskt upp till 3 gånger om något skriver över det, och loggar diagnostik (visar den synliga editorn det nya innehållet?) så exakt läge syns i loggen. v4.41: "Fyll i what's on" skrev innehållet i fact_box-blocken men det försvann vid sparning — HTML-paste tog sig aldrig in i Draftails React-state som skrev över det dolda fältet. Sektionerna byggs nu som draft.js-JSON (h2-rubrik, ul-block med länk/fetstil/kursiv-format, avslutande bläddringslänk, entityMap med LINK-entiteter) och skrivs via writeDraftailJSON — samma väg som den strukturbevarande översättningen, som är verifierad att överleva sparning. EN-grenen infogar nya block före avslutnings-p:et med dubblettskydd. v4.40: What's On-minnet försvann vid siduppdatering och syntes inte i CMS-fliken — minnet skrivs nu DUBBELT (GM + localStorage) och läses SAMMANSLAGET (union per event-URL) med synk vid varje sidladdning, så en död/domän-scoped GM-brygga aldrig kan förlora samlingen; CMS-fliken visar nu en live-lista över sparade event per kategori (med ta-bort-knappar) så du ser exakt vad Fyll i-knapparna kommer arbeta med. v4.39: ROTORSAKEN till döda tabbar/knappar: v4.35-omskrivningen tog bort definitionerna av populateWhatsOnMonthDropdown, setWhatsOnLang, getWhatsOnLang, getWhatsOnPeriodRange, buildWhatsOnMonthOptions och pasteHtmlIntoDraftail medan anropen fanns kvar — första ReferenceError i buildPanel avbröt alla lyssnar-registreringar. Samtliga återinförda från v4.34; panelen klickbar igen. v4.38: När GM-bryggan är död (SBR-bot service worker nere) kastade GM_getValue/GM_setValue och ETT kast i init-sekvensen dödade hela panelen — tabbar/logg/inställningar blev oklickbara. Alla GM-anrop går nu via säkra wrappers (sbGMGet/sbGMSet) med localStorage-fallback som aldrig kastar, och hela init-sekvensen (tema, panel, EventPortal-listen, widget) är try/catch-ad per bygge så UI:t alltid byggs även om GM-lagringen är otillgänglig. v4.37: Alt+klick laddade ner länkmålet och la inte till eventet på sidor utanför event-/events-sökvägarna — @match breddas till hela visitstockholm.se/com och widgeten byggs på ALLA publika (icke-CMS) sidor; alt+klick preventDefault:as FÖR kategorikollen så webbläsarens nedladdning stoppas alltid; kategorirubrikerna är fetställda med kryssruta som visar aktuell kategori + antal sparade event per kategori. v4.36: Widgeten gick inte att minimera och rensa-knappen saknade lyssnare (fanns i HTML:en men gjorde inget); kategorirubrikerna är nu riktiga knappar; guidegardin-renderingen är try/catch-ad så ett fel där inte längre kan döda panelens tabblyssnare (orsaken till att tabben inte gick att klicka på). v4.35: WHAT'S ON-OMTAG: nytt alt+klick-flöde — välj kategori i widgeten på event-/listsidor (nu även @match:ade) och alt+klicka eventlänkar för att samla dem i GM-minne (namn visas, ta bort/drag-drop mellan kategorier, rensa-knapp); i CMS:et fyller [Svenska]/[Engelska] sidans kategorisektioner med samma HTML-struktur som befintligt innehåll — SV ersätter månaden helt och uppdaterar titelns månad, EN staplar på under föregående månader; guidegardin med sök över månadsguideförslagen, ett guideval per card-kort. v4.34: Översättningen bevarar nu källformateringen i Draftail-fält — rubriker, fetstil, länkar och inlagda bilder — genom segmentvis översättning direkt i draft.js-JSON med omräknade offsets; Mistral instrueras alltid använda n-dash med mellanslag ( – ) i stället för em-dash utan mellanslag (—) och svar med em-dash skickas tillbaka upp till 3 gånger innan mekanisk sanering. v4.33: GM-kontext-flaggan (sid-fetch för resten av sessionen) triggas nu även av "Could not establish connection" och "SBR-bot-bryggan kunde inte nå service workern" — tidigare bara "Extension context invalidated" — så en död GM-brygga inte loggas om och försöks om vid varje anrop. v4.32: Översättningsfunktionen missade preamble (textarea), fact_box-modulernas rubriktext (extended_rich_text-N-value-html, Draftail) och card_image_link-modulernas title/text/link-text — TRANSLATABLE_FIELDS var en statisk lista som bara täckte fasta sidfält. Fältlistan byggs nu dynamiskt per körning och plockar med alla streamfield-block i extended rich text, men ALDRIG URL- (link-url/link-page), bild- eller bakgrundsfält. v4.31: Draftail-fält på vissa sid-sidor gick inte att fylla i — loggen visade "root-nycklar: 0", dvs. React sätter aldrig __reactFiber$/__reactProps$ på .DraftEditor-root där, så props-vandringen kan aldrig lyckas. När React-props saknas körs nu en paste-reserv (portrerad från EventBot v7.97.9): riktig paste-händelse → execCommand → dolt input-fält, en metod i taget med verifiering mot det dolda draft.js-fältet mellan varje steg. v4.30: inställningar överlever uppdatering, What's On fler event, GM-kontext-reserv, Draftail React 17+-props. v4.23: Fixat "Skriv till sidan" som inte gjorde något — orsaken var att kategori→sektion-mappningen (WHAT'S ON) bara kände till engelska slugs, medan API:et på .se-domänen faktiskt returnerar lokaliserade SVENSKA kategorietiketter ("musik", "scen & film", "utställningar"), bekräftat via en riktig körning där ALLA 228 event hamnade i "Övrigt" istället för Konserter/Scen & film/Museer. Lade till de svenska etiketterna i CATEGORY_TO_SECTION. Fixade även en "[object Object]"-bugg när ett kategorifält är ett objekt ({id,name}) istället för en sträng. v4.22: Steg 4 (första försöket) — "Skriv till sidan"-knappen skriver ikryssade event/guide till sidans befintliga fact_box/card_image_link-block via simulerad inklistring i Draftail, plus bildinfogning från befintlig bildbank. v4.21: Steg 3 — guide-förslag. v4.20: Steg 2 — hämtning/filtrering/kategorisering + checklista. v4.19: Steg 1 — flik, månadsväljare, inställningsfält. Äldre versioner: se git-historiken.
+// @version      4.59
+// @description  v4.59: WHAT'S ON-skrivningen portad ordagrant från EventBots verifierade updateDraftailViaClipboard-kedja: yta via .public-DraftEditor-content, VERIFIERAD select-all (avbryter vid ofullständig täckning så innehållet aldrig dubbleras), VERIFIERAD tömning via riktiga delete-event (keydown/beforeinput/input/keyup) med tomhetskontroll före paste, clipboardData i BÅDE konstruktorn och defineProperty-fallback, och 5 s-pollning mot det dolda fältet. execCommand('insertHTML')-reserven är BORTTAGEN ur WHAT'S ON-vägen (den verifierade bara "icke-tomt" och godkännde GAMMALT innehåll som landat) — misslyckad skrivning ger nu tydligt fel + "klistra in manuellt" i stället för falsk framgång. v4.58: När Draftail-paste togs inte emot OCH React-props saknas (root-nycklar: 0 på dessa fact_box-editorer) körs nu översättningsflödets verifierade paste/execCommand-insertHTML-kedja som sista reserv; dessutom tystas vilseledande "tog över 30 s"-felrader från kvarvarande racetimrar som avfyras när hämtningen redan hann klart. v4.57: Sista steget (paste i Draftail) verifierades med en fast 600 ms-väntan så en dröjande React-state-synk till det dolda fältet rapporterades felaktigt som "LANDADE EJ" — nu pollas upp till 5 s (EventBots mönster) och landar paste fortfarande inte körs React-props-vägen som reserv (EditorState.createWithContent + props.onChange, deras verifierade sätt som överlever sparning) med ny 5 s-verifiering; diagnostik loggar synlig editortext och props-läge vid misslyckande. v4.56: ROTORSAKEN till alla tysta häng i sid-hämtningen sedan v4.50: settle-wrappern i pageFetchText satte done=true redan när fetch() lämnat response-headern, så när kroppen (r.text()) sedan lästes var settle(resolve) en NO-OP — varje LYCKAD fetch hängde för evigt utan vare sig OK-, fel- eller timeout-loggrad (bara de yttre racen räddade flödet). done markeras nu först när hela svaret är läst eller ett fel skett. v4.55: Att släppa FLERA länkar samtidigt i what's on-rutorna avvisades tyst — Chrome levererar multi-drag som text/uri-list med en URL per rad (# = kommentarer) men hanteraren tolkade hela blobben som EN url så isEventUrl avvisade den. Nu splittras droppen och varje event-URL läggs till (dubblettskydd per URL finns kvar), ogiltiga länkar loggas; kort behåller första URL:en. v4.54: Hämtningen kunde frysa HELT på "hämtar sida 1/N" i över 5 minuter utan att varken lyckas eller misslyckas (pageFetchText-promiset settle:ades aldrig trots 10 s-timer) — nu: hård yttre gräns 30 s per sida så flödet alltid går vidare (tom info + tydlig felrad), och pageFetchText loggar start/tidsgräns/synkront kast så exakt blockerande steg avslöjas. v4.53: Flödet kunde stå still på "Hämtar N sidor..." i minuter utan en enda loggrad (död GM-brygga + ev. CSP-blockad sid-fetch sväljs tyst av fetchPageHtmlRobust) — hela hämtningskedjan loggar nu varje steg: per sida "hämtar sida X/N: url" + "klar på N ms — titel: ...", och fetchPageHtmlRobust loggar såväl sid-fetch-OK (ms + teckenantal) som exakt felorsak vid misslyckande (avslöjar t.ex. CSP "Refused to connect" eller "Failed to fetch") före GM-reserven. v4.52: Transport-härdning enligt EventBots verifierade mönster: proaktivt GM-hälsokoll (billigt GET /v1/models med 8 s watchdog) före första agent-anropet upptäcker en tyst död messaging-port trots "bridge ready"-loggen; efter konstaterat nätverksfel/timeout/tyst häng hoppas GM över HELT i 2 minuter (markGmBridgeDead) så SBR-bots egna retries inte spökar; 502/503/504 rapporteras som tillfälliga serverfel; sid-fetch-reservens misslyckanden loggas TYDLIGT (CSP-misstanke nämns) i stället för att sväljas av den yttre racen; extractJSON tål kodstängsel (```json) och brus runt JSON:en. v4.51: EditorBot ska INTE köras i event-delen av CMS (där blockerar det EventBot) — @exclude på https://www.visitstockholm.se/com/cms/api/event/* (täcker /cms/api/event/edit/* och /cms/api/event/?status__exact=draft; kalender-API:t EditorBot använder är /api/v1/singulareventdates/ så inget funktionsbrott) + runtime-guard som avbryter innan något byggs om en iframe ändå slinker igenom. v4.50: Fler funktioner som föll bort i v4.45-sektionsbytena medan anropen fanns kvar: pageFetchText (alla "sid-fetch som reserv"-grenar kastade ReferenceError INOM sina callbacks så agent-anropet gick tyst i stå EFTER loggraden "provar sid-fetch" — därför nåddes aldrig api.mistral.ai och titel-hämtningen rapporterade "varken sid-fetch eller GM" fast sid-fetch aldrig kördes), eventRowHtmlWhatsOn (SV-grenens paste-HTML-rad, "kunde inte skrivas") och gmGetJson (kalenderhämtningen) — samtliga återinförda. v4.49: ROTORSAKEN till tysta häng: definitionerna av gmGet OCH gmDead föll båda bort i v4.45-sektionsbytena medan anropen fanns kvar — titel-hämtningen kastade sväljd ReferenceError ("kunde inte hämta... varken sid-fetch eller GM") och gmPosts felhanterare kastade ReferenceError INOM felhanteraren så agent-anropets promise aldrig settle:ades (svaret mottogs aldrig trots fungerande agent). Återinförda; gmGet har 20 s-väktare och gmPost 35 s-väktare som vid tyst häng i SBR-bot-bryggan (sendMessage utan svar) automatiskt kör sid-fetch-reserven. v4.48: Paste i fact_box landade aldrig — Chrome ignorerar clipboardData i ClipboardEvent-KONSTRUKTORN så Draftail läste undefined; clipboardData definieras nu via defineProperty (såsom objectside-flödet alltid gjort) och hela rutans innehåll markeras före paste så SV-ersättning fungerar. Agent-timeout höjd 90→240 s (web-sökande agent behöver längre tid) med svarstidsloggning. v4.47: Genererat innehåll försvann ändå vid sparning — skriv-vaktens dolda-fält-skrivning nådde aldrig Draftails React-state som skrev över det vid spara. WHAT'S ON-skrivningen använder nu RIKTIG paste (text/html) i editorn så Draftails egna paste-hantering bygger blocken OCH uppdaterar React-state (samma verifierade mekanik som objectside-flödets execCommand-reserv); SV ersätter rutan (h2 + li-rader i sidans format), EN klistrar in i slutet; verifiering mot dolt fält efter paste. v4.46: Agent-anropen hängde tyst (titlar blev URL:er, inga beskrivningar mottogs) — sidhämtning kör nu sid-fetch först med 10 s timeout (GM som reserv, hård 12 s-timeout) och agent-anropet har 90 s hårdtimeout varefter flödet fortsätter med råbeskrivningar; drop-zonerna får ljus bakgrund, fetstil och titlar i stället för URL:er; Generera-knappen inaktiveras (halvtransparent) medan den kör och visar senaste loggraden bredvid. v4.45: WHAT'S ON v3 — drag-and-drop direkt i CMS: hela insamlingsflödet (widget på webben, alt+klick, GM-minne, Fyll i-knappar) är BORTTAGET; istället får varje blockruta (Höjdpunkter/rich_text, varje fact_box, varje card_image_link-kort) en blå drop-zon där event-URL:er släpps från kalendern, en Generera-knapp per ruta + en global, språket styrs av domänen (.se ersätter månaden helt, .com staplar på), kort fylls från guidesidans SEO-fält (title/text/link-text/link-url) utan agent, fact-box-event hämtar titel/datum/beskrivning via sid-fetch och agenten skriver husstils-beskrivningar; @match tillbaka till endast CMS-sidor. v4.44: 'gmContextDead is not defined' vid varje Mistral-anrop — deklarationen föll bort i ett sektionsbyte så agenten kraschade och titel-hämtningen med den (URL:er visades i stället för sidrubriker). Deklarationen återinförd, titel-hämtningen har sid-fetch-reserv och får aldrig visa URL som titel; kategori-emojis i både widgeten och CMS-panelen; kryssrutan på kategorierna ersatt av ren aktiv-markering. v4.43: Övrigt-rubriken är nu HÖJDPUNKTER och ligger FÖRST — den motsvarar sidans rich_text-fält och fylls med h2-rubriken "Månadens höjdpunkter" + eventlista när Fyll i körs; CMS-panelens minneslista speglar nu sidans faktiska blockordning (Höjdpunkter, sedan varje fact_box-ruta med sin kategori, och sidans card_image_link-block visas som kortväljare mellan rubrikerna) så panelen ser ut som sidan. v4.42: Fact_box-innehållet skrevs men något (React re-render/lås-polling) återställde editorns state och raderade det vid sparning — ny skriv-vakt pollar det dolda fältet i 6 s efter skrivning, skriver OM automatiskt upp till 3 gånger om något skriver över det, och loggar diagnostik (visar den synliga editorn det nya innehållet?) så exakt läge syns i loggen. v4.41: "Fyll i what's on" skrev innehållet i fact_box-blocken men det försvann vid sparning — HTML-paste tog sig aldrig in i Draftails React-state som skrev över det dolda fältet. Sektionerna byggs nu som draft.js-JSON (h2-rubrik, ul-block med länk/fetstil/kursiv-format, avslutande bläddringslänk, entityMap med LINK-entiteter) och skrivs via writeDraftailJSON — samma väg som den strukturbevarande översättningen, som är verifierad att överleva sparning. EN-grenen infogar nya block före avslutnings-p:et med dubblettskydd. v4.40: What's On-minnet försvann vid siduppdatering och syntes inte i CMS-fliken — minnet skrivs nu DUBBELT (GM + localStorage) och läses SAMMANSLAGET (union per event-URL) med synk vid varje sidladdning, så en död/domän-scoped GM-brygga aldrig kan förlora samlingen; CMS-fliken visar nu en live-lista över sparade event per kategori (med ta-bort-knappar) så du ser exakt vad Fyll i-knapparna kommer arbeta med. v4.39: ROTORSAKEN till döda tabbar/knappar: v4.35-omskrivningen tog bort definitionerna av populateWhatsOnMonthDropdown, setWhatsOnLang, getWhatsOnLang, getWhatsOnPeriodRange, buildWhatsOnMonthOptions och pasteHtmlIntoDraftail medan anropen fanns kvar — första ReferenceError i buildPanel avbröt alla lyssnar-registreringar. Samtliga återinförda från v4.34; panelen klickbar igen. v4.38: När GM-bryggan är död (SBR-bot service worker nere) kastade GM_getValue/GM_setValue och ETT kast i init-sekvensen dödade hela panelen — tabbar/logg/inställningar blev oklickbara. Alla GM-anrop går nu via säkra wrappers (sbGMGet/sbGMSet) med localStorage-fallback som aldrig kastar, och hela init-sekvensen (tema, panel, EventPortal-listen, widget) är try/catch-ad per bygge så UI:t alltid byggs även om GM-lagringen är otillgänglig. v4.37: Alt+klick laddade ner länkmålet och la inte till eventet på sidor utanför event-/events-sökvägarna — @match breddas till hela visitstockholm.se/com och widgeten byggs på ALLA publika (icke-CMS) sidor; alt+klick preventDefault:as FÖR kategorikollen så webbläsarens nedladdning stoppas alltid; kategorirubrikerna är fetställda med kryssruta som visar aktuell kategori + antal sparade event per kategori. v4.36: Widgeten gick inte att minimera och rensa-knappen saknade lyssnare (fanns i HTML:en men gjorde inget); kategorirubrikerna är nu riktiga knappar; guidegardin-renderingen är try/catch-ad så ett fel där inte längre kan döda panelens tabblyssnare (orsaken till att tabben inte gick att klicka på). v4.35: WHAT'S ON-OMTAG: nytt alt+klick-flöde — välj kategori i widgeten på event-/listsidor (nu även @match:ade) och alt+klicka eventlänkar för att samla dem i GM-minne (namn visas, ta bort/drag-drop mellan kategorier, rensa-knapp); i CMS:et fyller [Svenska]/[Engelska] sidans kategorisektioner med samma HTML-struktur som befintligt innehåll — SV ersätter månaden helt och uppdaterar titelns månad, EN staplar på under föregående månader; guidegardin med sök över månadsguideförslagen, ett guideval per card-kort. v4.34: Översättningen bevarar nu källformateringen i Draftail-fält — rubriker, fetstil, länkar och inlagda bilder — genom segmentvis översättning direkt i draft.js-JSON med omräknade offsets; Mistral instrueras alltid använda n-dash med mellanslag ( – ) i stället för em-dash utan mellanslag (—) och svar med em-dash skickas tillbaka upp till 3 gånger innan mekanisk sanering. v4.33: GM-kontext-flaggan (sid-fetch för resten av sessionen) triggas nu även av "Could not establish connection" och "SBR-bot-bryggan kunde inte nå service workern" — tidigare bara "Extension context invalidated" — så en död GM-brygga inte loggas om och försöks om vid varje anrop. v4.32: Översättningsfunktionen missade preamble (textarea), fact_box-modulernas rubriktext (extended_rich_text-N-value-html, Draftail) och card_image_link-modulernas title/text/link-text — TRANSLATABLE_FIELDS var en statisk lista som bara täckte fasta sidfält. Fältlistan byggs nu dynamiskt per körning och plockar med alla streamfield-block i extended rich text, men ALDRIG URL- (link-url/link-page), bild- eller bakgrundsfält. v4.31: Draftail-fält på vissa sid-sidor gick inte att fylla i — loggen visade "root-nycklar: 0", dvs. React sätter aldrig __reactFiber$/__reactProps$ på .DraftEditor-root där, så props-vandringen kan aldrig lyckas. När React-props saknas körs nu en paste-reserv (portrerad från EventBot v7.97.9): riktig paste-händelse → execCommand → dolt input-fält, en metod i taget med verifiering mot det dolda draft.js-fältet mellan varje steg. v4.30: inställningar överlever uppdatering, What's On fler event, GM-kontext-reserv, Draftail React 17+-props. v4.23: Fixat "Skriv till sidan" som inte gjorde något — orsaken var att kategori→sektion-mappningen (WHAT'S ON) bara kände till engelska slugs, medan API:et på .se-domänen faktiskt returnerar lokaliserade SVENSKA kategorietiketter ("musik", "scen & film", "utställningar"), bekräftat via en riktig körning där ALLA 228 event hamnade i "Övrigt" istället för Konserter/Scen & film/Museer. Lade till de svenska etiketterna i CATEGORY_TO_SECTION. Fixade även en "[object Object]"-bugg när ett kategorifält är ett objekt ({id,name}) istället för en sträng. v4.22: Steg 4 (första försöket) — "Skriv till sidan"-knappen skriver ikryssade event/guide till sidans befintliga fact_box/card_image_link-block via simulerad inklistring i Draftail, plus bildinfogning från befintlig bildbank. v4.21: Steg 3 — guide-förslag. v4.20: Steg 2 — hämtning/filtrering/kategorisering + checklista. v4.19: Steg 1 — flik, månadsväljare, inställningsfält. Äldre versioner: se git-historiken.
 // @match        https://www.visitstockholm.com/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.se/cms/pages/add/main/objectpage/*
 // @match        https://www.visitstockholm.com/cms/pages/*/edit/*
@@ -1332,34 +1332,93 @@
   // OCH uppdaterar React-state, s\u00e5 inneh\u00e5llet \u00f6verlever sparning (den
   // dolda-f\u00e4lt-v\u00e4g som anv\u00e4ndes i v4.41\u20134.46 skrevs \u00f6ver av React vid
   // sparning \u2014 bevisat av f\u00e4lttest).
-  async function pasteHtmlWhatsOn(fieldId, html, expectText) {
+  // v4.59: WHAT'S ON-skrivning enligt EventBots verifierade kedja
+  // (updateDraftailViaClipboard ~1874): yta via .public-DraftEditor-content,
+  // VERIFIERAD select-all (avbryt vid ofullständig täckning — annars
+  // dubbleras innehållet), VERIFIERAD tömning via riktiga delete-event,
+  // paste med båda clipboardData-varianterna (konstruktor + defineProperty),
+  // och 5 s-pollning mot det DOLTA fältet. execCommand('insertHTML')-reserven
+  // är BORTTAGEN ur WHAT'S ON-vägen (den rapporterade gammalt innehåll som OK);
+  // misslyckad skrivning = tydligt fel + "klistra in manuellt".
+  async function pasteHtmlWhatsOn(fieldId, html, expectText, mode) {
+    mode = mode || 'replace';
     const root = await mountDraftail(fieldId);
-    if (!root) return false;
-    const surface = root.querySelector('[contenteditable="true"]') || root;
-    if (!surface.isContentEditable) { vlog("WHAT'S ON: " + fieldId + ' \u00e4r inte redigerbar.', 'err'); return false; }
+    if (!root) { vlog("WHAT'S ON: hittade ingen editor för " + fieldId + '.', 'err'); return false; }
+    // Fråga 1: EventBots yta — .public-DraftEditor-content är Draftails
+    // faktiska redigerbara nod; [contenteditable] är fallback.
+    const surface = root.querySelector('.public-DraftEditor-content') || root.querySelector('[contenteditable="true"]') || root;
+    if (!surface.isContentEditable) { vlog("WHAT'S ON: " + fieldId + ' är inte redigerbar.', 'err'); return false; }
     surface.focus();
-    // Markera ALLT befintligt innehåll så paste ersätter rutan (EN-grenen
-    // sätter egen slut-markering före anrop och får append-beteende via att
-    // markeringen då står i slutet — paste ersätter den tomma slutmarkeringen).
-    const range = document.createRange();
-    range.selectNodeContents(surface);
-    const sel = window.getSelection();
-    sel.removeAllRanges();
-    sel.addRange(range);
     await wait(100);
+
+    const sel = window.getSelection();
+    // Fråga 2a: select-all MED verifiering (EventBot ~1900-1920).
+    const coversAll = () => {
+      try {
+        const s = window.getSelection();
+        if (!s || !s.rangeCount) return false;
+        const contentLen = String(surface.textContent || '').replace(/\s+/g, ' ').trim().length;
+        const selLen = String(s.toString() || '').replace(/\s+/g, ' ').trim().length;
+        return contentLen === 0 || selLen >= contentLen;
+      } catch { return false; }
+    };
+    if (mode === 'replace') {
+      const range = document.createRange();
+      range.selectNodeContents(surface);
+      sel.removeAllRanges();
+      sel.addRange(range);
+      await wait(100);
+      if (!coversAll()) {
+        try { document.execCommand('selectAll'); } catch {}
+        await wait(100);
+      }
+      if (!coversAll()) {
+        vlog("WHAT'S ON: select-all täckte inte hela editorn i " + fieldId + " — avbryter utan paste (risk för dublettinnehåll).", 'err');
+        return false;
+      }
+      // Fråga 2b: verifierad tömning via riktiga delete-event (EventBot ~1940-1965).
+      const fireDelete = () => {
+        const mk = type => { try { surface.dispatchEvent(new KeyboardEvent(type, { key: 'Delete', code: 'Delete', keyCode: 46, which: 46, bubbles: true, cancelable: true })); } catch {} };
+        mk('keydown'); mk('beforeinput'); mk('input'); mk('keyup');
+      };
+      const isEmpty = () => {
+        const vis = String(surface.textContent || '').replace(/\s+/g, ' ').trim();
+        if (vis) return false;
+        let hid = '';
+        try { hid = readDraftailText(fieldId).replace(/\s+/g, ' ').trim(); } catch {}
+        return !hid;
+      };
+      let empty = false;
+      for (let i = 0; i < 20 && !empty; i++) { fireDelete(); await wait(100); empty = isEmpty(); }
+      if (!empty) {
+        vlog("WHAT'S ON: kunde inte tömma " + fieldId + " före paste — avbryter (annars dubbleras innehållet).", 'err');
+        return false;
+      }
+    } else {
+      // append (EN): markören i slutet — ingen tömning.
+      const range = document.createRange();
+      range.selectNodeContents(surface);
+      range.collapse(false);
+      sel.removeAllRanges();
+      sel.addRange(range);
+      await wait(150);
+    }
+
+    // Fråga 3: båda clipboardData-varianterna.
     let dt;
     try { dt = new DataTransfer(); } catch { dt = null; }
-    if (!dt) return false;
+    if (!dt) { vlog("WHAT'S ON: DataTransfer stöds inte — kan inte klistra i " + fieldId + '.', 'err'); return false; }
     dt.setData('text/html', html);
-    dt.setData('text/plain', expectText || html.replace(/<[^>]+>/g, ''));
-    // clipboardData MÅSTE definieras via defineProperty — Chrome ignorerar
-    // clipboardData i ClipboardEvent-konstruktorn, så Draftail läste undefined
-    // och paste togs tyst inte emot (v4.47-buggen "LANDADE EJ").
-    const pasteEvent = new ClipboardEvent('paste', { bubbles: true, cancelable: true });
-    Object.defineProperty(pasteEvent, 'clipboardData', { value: dt });
+    dt.setData('text/plain', (expectText || html.replace(/<[^>]+>/g, '')));
+    let pasteEvent = null;
+    try { pasteEvent = new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: dt }); } catch { pasteEvent = null; }
+    if (!pasteEvent || !pasteEvent.clipboardData) {
+      pasteEvent = new ClipboardEvent('paste', { bubbles: true, cancelable: true });
+      try { Object.defineProperty(pasteEvent, 'clipboardData', { value: dt }); } catch {}
+    }
     surface.dispatchEvent(pasteEvent);
-    // v4.57: React-state-synken till det dolda fältet kan dröja — polla
-    // upp till 5 s (EventBots mönster) i stället för en fast 600 ms-koll.
+
+    // Fråga 4: polla det dolda fältet upp till 5 s (EventBots draftailTextLanded).
     const want = (expectText || '').replace(/\s+/g, ' ').trim();
     const landed = () => {
       let hiddenText = '';
@@ -1373,64 +1432,14 @@
       vlog("WHAT'S ON: paste till " + fieldId + ' landade i editorn (' + got.length + ' tecken).', 'ok');
       return true;
     }
-    // v4.57: paste togs inte emot — försök React-props-vägen (EventBots
-    // verifierade reserv): EditorState.createWithContent + props.onChange
-    // uppdaterar React-state direkt och överlever sparning.
-    vlog("WHAT'S ON: paste till " + fieldId + ' togs inte emot — provar React-props-vägen som reserv.', 'warn');
-    try {
-      const props = getDraftProps(root);
-      if (props && props.editorState && props.onChange) {
-        const ES = props.editorState.constructor;
-        const CS = props.editorState.getCurrentContent().constructor;
-        const plain = (expectText || html.replace(/<\s*br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '\n')).replace(/\n{2,}/g, '\n').trim();
-        let ns = ES.createWithContent(CS.createFromText(plain, '\n'));
-        ns = ES.moveSelectionToEnd(ns);
-        props.onChange(ns);
-        for (let i = 0; i < 50 && !got; i++) { await wait(100); got = landed(); }
-      } else {
-        vlog("WHAT'S ON: React-props hittades inte på editorn — " + draftPropsDebugInfo(root, 0), 'warn');
-      }
-    } catch (pe) {
-      vlog("WHAT'S ON: React-props-reserven kastade: " + (pe && pe.message ? pe.message : pe), 'warn');
-    }
-    if (got) {
-      vlog("WHAT'S ON: React-props-vägen landade (" + got.length + ' tecken) — OBS: formatering kan delvis ha förlorats, granska rutan.', 'ok');
-      return true;
-    }
-    // v4.58: sista reserv — översättningsflödets verifierade kedja
-    // (riktig paste → execCommand-insertHTML), som fungerar på sidor
-    // där React-props saknas (root-nycklar: 0).
-    vlog("WHAT'S ON: provar översättningsflödets paste/execCommand-kedja som sista reserv.", 'warn');
-    try {
-      const okFallback = await pasteHtmlIntoDraftail(fieldId, html);
-      if (okFallback) {
-        got = landed();
-        if (got) {
-          vlog("WHAT'S ON: execCommand-reserven landade i " + fieldId + ' (' + got.length + ' tecken).', 'ok');
-          return true;
-        }
-      }
-    } catch (fe2) {
-      vlog("WHAT'S ON: execCommand-reserven kastade: " + (fe2 && fe2.message ? fe2.message : fe2), 'warn');
-    }
-    vlog("WHAT'S ON: paste till " + fieldId + ' LANDADE EJ — dolt fält oförändrat/tomt. Synlig editortext: ' + String(surface.textContent || '').slice(0, 80), 'err');
+    // Fråga 5: ingen tyst/falsk reservväg — tydligt fel + manuell instruktion.
+    vlog("WHAT'S ON: paste till " + fieldId + " togs inte emot av Draftail (dolt fält oförändrat efter 5 s). KLISTRA IN MANUELLT i rutan — innehållet finns i loggen ovan. Synlig editortext: " + String(surface.textContent || '').slice(0, 80), 'err');
     return false;
   }
 
   // [EN] klistra in HTML i SLUTET av editorn utan att radera befintligt
   async function appendHtmlWhatsOn(fieldId, html, expectText) {
-    const root = await mountDraftail(fieldId);
-    if (!root) return false;
-    const surface = root.querySelector('[contenteditable="true"]') || root;
-    surface.focus();
-    const range = document.createRange();
-    range.selectNodeContents(surface);
-    range.collapse(false); // mark\u00f6ren till slutet
-    const sel = window.getSelection();
-    sel.removeAllRanges();
-    sel.addRange(range);
-    await wait(150);
-    return pasteHtmlWhatsOn(fieldId, html, expectText);
+    return pasteHtmlWhatsOn(fieldId, html, expectText, 'append');
   }
 
   async function whatsonGenerate(def, lang) {
