@@ -883,59 +883,6 @@
   // Den tomma inledande <p> lämnar plats åt bilden som infogas separat
   // (insertImageAtDraftailStart) — se motiveringen ovan till varför bilden
   // inte bara skrivs med i samma HTML.
-  // ---- WHAT'S ON-AGENT: husstils-beskrivningar ----
-  // Skickar de ikryssade eventen (id, titel, datum, råbeskrivning, sektion,
-  // språk) till den dedikerade What's On-agenten och får tillbaka nyskrivna
-  // 1–2-meningars beskrivningar i husstil som strikt JSON. Misslyckas
-  // anropet (ingen nyckel/agent-ID, nätverksfel, ogiltigt svar) faller vi
-  // tillbaka på truncateDescription så flödet aldrig blockeras.
-  async function polishWhatsOnDescriptions(eventsBySection, lang) {
-    const apiKey = ($('sb-mkey').value || sbGMGet('sidbot_mkey', '')).trim();
-    const agentId = ($('sb-magent-whatson').value || sbGMGet('sidbot_magent_whatson', '')).trim();
-    if (!apiKey || !agentId) {
-      vlog("WHAT'S ON: ingen What's On-agent konfigurerad — använder API:ets råbeskrivningar (trunkerade).", 'warn');
-      return false;
-    }
-    const all = [];
-    for (const key of Object.keys(eventsBySection)) {
-      for (const ev of eventsBySection[key]) {
-        all.push({ id: String(ev.id), section: key, title: ev.title,
-                   start_date: ev.start_date, end_date: ev.end_date,
-                   url: ev.href, current_description: ev.description || '' });
-      }
-    }
-    if (!all.length) return false;
-    const payload = {
-      page_language: lang === 'sv' ? 'svenska' : 'engelska',
-      domain: lang === 'sv' ? 'visitstockholm.se' : 'visitstockholm.com',
-      task: 'Skriv en beskrivning (1–2 meningar, 15–35 ord) per event i husstil på sidans språk. Behåll titlar och egennamn oförändrade. Fokusera på vad eventet är och varför det är värt att se — inga biljettpriser eller öppettider.',
-      events: all
-    };
-    const agentInput = 'WHATSON-DESC-BATCH\n' + JSON.stringify(payload, null, 2) +
-      '\nSvara ENBART med ett JSON-objekt på formen:' +
-      '\n{"descriptions": [{"id": "<samma id som input>", "description": "<nyskriven beskrivning>"}]}' +
-      '\nEtt objekt per input-event, samma id. Ingen extra text, inga kodblock.';
-    try {
-      setWhatsOnStatus('Agenten skriver beskrivningar (' + all.length + ' event)...', 'work');
-      vlog("WHAT'S ON: skickar " + all.length + " event till What's On-agenten (" + agentId + ').');
-      const data = await callMistralAgentForJSON(apiKey, agentId, agentInput, "what's on-beskrivningar");
-      const list = Array.isArray(data?.descriptions) ? data.descriptions : [];
-      let count = 0;
-      for (const item of list) {
-        if (!item || item.id == null || typeof item.description !== 'string' || !item.description.trim()) continue;
-        for (const key of Object.keys(eventsBySection)) {
-          const ev = eventsBySection[key].find(e => String(e.id) === String(item.id));
-          if (ev) { ev.description = item.description.trim(); ev._polished = true; count++; break; }
-        }
-      }
-      vlog("WHAT'S ON: " + count + '/' + all.length + ' beskrivningar mottagna från agenten.', count ? 'ok' : 'err');
-      return count > 0;
-    } catch (e) {
-      vlog("WHAT'S ON: agent-anrop misslyckades (" + e.message + ') — använder råbeskrivningar.', 'warn');
-      return false;
-    }
-  }
-
 
   // Infogar en bild från BEFINTLIGA bildbanken (aldrig uppladdning av en ny)
   // längst upp i fältet, via editorns egen "lägg till block"-meny — precis
